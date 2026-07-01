@@ -340,8 +340,19 @@ describe('routes/admin.js — setupAdminRoutes', () => {
   // ── GET /admin (redirect) ─────────────────────────────────────
 
   describe('GET /admin', () => {
-    it('redirects to /admin/dashboard', async () => {
+    it('redirects to /admin/dashboard when authenticated', async () => {
+      // Login first
+      const loginRes = await request(app, 'POST', '/admin/login', {
+        body: 'password=admin123',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        followRedirect: false,
+      });
+      const cookie = Array.isArray(loginRes.headers['set-cookie'])
+        ? loginRes.headers['set-cookie'].join('; ')
+        : loginRes.headers['set-cookie'];
+
       const res = await request(app, 'GET', '/admin', {
+        cookie,
         followRedirect: false,
       });
       assert.strictEqual(res.status, 302);

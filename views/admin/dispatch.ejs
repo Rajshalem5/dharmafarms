@@ -1,0 +1,99 @@
+<div class="p-6">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-2xl font-bold text-[#1B4332]">Dispatch</h1>
+      <p class="text-sm text-gray-500 mt-1"><%= today %></p>
+    </div>
+  </div>
+
+  <% if (flash) { %>
+    <div class="<%= flash.type === 'success' ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700' %> border px-4 py-3 rounded-lg mb-4 text-sm">
+      <%= flash.message %>
+    </div>
+  <% } %>
+
+  <% if (!hasDispatch) { %>
+    <div class="bg-white rounded-xl shadow-sm p-8 text-center">
+      <p class="text-gray-500 mb-4">No dispatch has been generated for today.</p>
+      <form id="generateForm" onsubmit="generateDispatch(event)">
+        <button type="submit" class="bg-[#2D6A4F] hover:bg-[#1B4332] text-white font-medium py-2.5 px-8 rounded-lg transition-colors duration-150 cursor-pointer">
+          Generate Today's Dispatch
+        </button>
+      </form>
+      <p id="generateResult" class="text-sm mt-3 hidden"></p>
+    </div>
+  <% } else { %>
+    <div class="mb-4 text-sm text-gray-600">
+      Total: <strong><%= totalCount %></strong> deliveries
+    </div>
+
+    <% deliveriesByBoy.forEach(function(boy) { %>
+      <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-6">
+        <div class="bg-[#1B4332] text-white px-5 py-3 font-semibold">
+          <%= boy.boy_name %>
+          <span class="text-sm font-normal text-green-300 ml-2">(<%= boy.deliveries.length %> deliveries)</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Customer</th>
+                <th>Address</th>
+                <th>Status</th>
+                <th>Marked At</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% boy.deliveries.forEach(function(d) { %>
+                <tr>
+                  <td class="font-mono font-medium text-[#1B4332]"><%= d.customer_code %></td>
+                  <td><%= d.customer_name %></td>
+                  <td class="max-w-xs truncate"><%= d.customer_address || d.address %></td>
+                  <td>
+                    <span class="badge-<%= d.status %>"><%= d.status %></span>
+                    <% if (d.issue_reason) { %>
+                      <span class="block text-xs text-gray-500 mt-0.5" title="<%= d.issue_reason %>"><%= d.issue_reason %></span>
+                    <% } %>
+                  </td>
+                  <td class="text-gray-500"><%= d.marked_at || '-' %></td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    <% }); %>
+  <% } %>
+</div>
+
+<script>
+function generateDispatch(e) {
+  e.preventDefault();
+  var btn = e.target.querySelector('button[type="submit"]');
+  var result = document.getElementById('generateResult');
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+  result.className = 'text-sm mt-3';
+  result.textContent = '';
+
+  fetch('/admin/dispatch/generate', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.generated) {
+        result.className = 'text-sm mt-3 text-green-600';
+        result.textContent = 'Generated ' + data.count + ' deliveries. Reloading...';
+      } else {
+        result.className = 'text-sm mt-3 text-amber-600';
+        result.textContent = 'Dispatch already exists for today. Reloading...';
+      }
+      setTimeout(function() { location.reload(); }, 1000);
+    })
+    .catch(function(err) {
+      btn.disabled = false;
+      btn.textContent = 'Generate Today\'s Dispatch';
+      result.className = 'text-sm mt-3 text-red-600';
+      result.textContent = 'Error: ' + err.message;
+    });
+}
+</script>

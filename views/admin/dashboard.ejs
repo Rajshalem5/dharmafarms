@@ -1,0 +1,38 @@
+<div class="p-6">
+  <h1 class="text-2xl font-bold text-[#1B4332] mb-6">Dashboard</h1>
+
+  <% if (!hasDeliveries) { %>
+    <div class="bg-white rounded-xl shadow-sm p-8 text-center">
+      <p class="text-gray-500 mb-4">No deliveries have been generated for today yet.</p>
+      <a href="/admin/dispatch" class="inline-block bg-[#2D6A4F] hover:bg-[#1B4332] text-white font-medium py-2 px-6 rounded-lg transition-colors duration-150">Go to Dispatch</a>
+    </div>
+  <% } else { %>
+    <div class="stats-grid mb-8">
+      <div class="stat-card"><div class="stat-card-border" style="background:#1B4332"></div><div class="stat-card-body"><p class="stat-card-count"><%= totals.total %></p><p class="stat-card-label">Total</p></div></div>
+      <div class="stat-card"><div class="stat-card-border" style="background:#16a34a"></div><div class="stat-card-body"><p class="stat-card-count"><%= totals.delivered %></p><p class="stat-card-label">Delivered</p></div></div>
+      <div class="stat-card"><div class="stat-card-border" style="background:#ca8a04"></div><div class="stat-card-body"><p class="stat-card-count"><%= totals.skipped %></p><p class="stat-card-label">Skipped</p></div></div>
+      <div class="stat-card"><div class="stat-card-border" style="background:#dc2626"></div><div class="stat-card-body"><p class="stat-card-count"><%= totals.issue %></p><p class="stat-card-label">Issues</p></div></div>
+      <div class="stat-card"><div class="stat-card-border" style="background:#6b7280"></div><div class="stat-card-body"><p class="stat-card-count"><%= totals.pending %></p><p class="stat-card-label">Pending</p></div></div>
+      <div class="stat-card"><div class="stat-card-border" style="background:#2563eb"></div><div class="stat-card-body"><p class="stat-card-count"><%= totals.arriving %></p><p class="stat-card-label">Arriving</p></div></div>
+      <div class="stat-card"><div class="stat-card-border" style="background:#7c3aed"></div><div class="stat-card-body"><p class="stat-card-count"><%= activeCustomers %></p><p class="stat-card-label">Active Customers</p></div></div>
+    </div>
+
+    <% boyStats.forEach(function(boy) { %>
+      <div class="bg-white rounded-xl shadow-sm p-5 mb-4">
+        <h3 class="font-semibold text-[#1B4332] mb-3"><%= boy.boy_name %></h3>
+        <div class="flex flex-wrap gap-3 text-sm">
+          <span class="px-3 py-1 rounded-full bg-green-100 text-green-800">Delivered: <%= boy.delivered %></span>
+          <span class="px-3 py-1 rounded-full bg-yellow-100 text-yellow-800">Skipped: <%= boy.skipped %></span>
+          <span class="px-3 py-1 rounded-full bg-red-100 text-red-800">Issues: <%= boy.issue %></span>
+          <span class="px-3 py-1 rounded-full bg-gray-100 text-gray-800">Pending: <%= boy.pending %></span>
+          <span class="px-3 py-1 rounded-full bg-blue-100 text-blue-800">Arriving: <%= boy.arriving %></span>
+        </div>
+      </div>
+    <% }); %>
+  <% } %>
+
+  <div class="flex gap-3 mt-6">
+    <a href="/admin/dispatch" class="bg-[#2D6A4F] hover:bg-[#1B4332] text-white font-medium py-2 px-6 rounded-lg transition-colors duration-150">View Dispatch</a>
+    <a href="/admin/customers" class="bg-white hover:bg-gray-50 text-[#1B4332] font-medium py-2 px-6 rounded-lg border border-gray-300 transition-colors duration-150">Manage Customers</a>
+  </div>
+</div>
