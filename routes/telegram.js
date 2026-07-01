@@ -115,6 +115,14 @@ async function handleStart(bot, chatId, db, args) {
     );
   }
 
+  // Prevent hijacking: if the phone is already linked to a different chat_id, reject
+  if (boy.telegram_chat_id !== null && boy.telegram_chat_id !== chatId) {
+    return bot.sendMessage(
+      chatId,
+      `This phone number is already registered to another account. Contact your admin to resolve.`
+    );
+  }
+
   // Link the chat_id to the delivery boy
   db.prepare(
     'UPDATE delivery_boys SET telegram_chat_id = ? WHERE id = ?'
