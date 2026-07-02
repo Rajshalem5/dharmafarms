@@ -276,10 +276,10 @@ describe('performCompleteBackupCycle', () => {
 
     assert.strictEqual(result.backedUp, true);
     assert.strictEqual(typeof result.deleted, 'number');
+    assert.strictEqual(result.filename, todayFilename());
 
     // Verify the backup file was created
-    const filename = todayFilename();
-    assert.strictEqual(fs.existsSync(path.join(backupDir, filename)), true);
+    assert.strictEqual(fs.existsSync(path.join(backupDir, result.filename)), true);
   });
 
   it('skips backup when one already exists for today (idempotent)', () => {
@@ -287,6 +287,7 @@ describe('performCompleteBackupCycle', () => {
 
     assert.strictEqual(result.backedUp, false);
     assert.strictEqual(result.deleted, 0);
+    assert.strictEqual(result.filename, undefined);
   });
 
   it('returns deleted count when cleanup removes old files', () => {
@@ -311,6 +312,7 @@ describe('performCompleteBackupCycle', () => {
     assert.strictEqual(result.backedUp, true);
     // 32 old + 1 new = 33 total, maxBackups=30 → delete 3
     assert.strictEqual(result.deleted, 3);
+    assert.strictEqual(result.filename, todayFilename());
 
     const remaining = fs.readdirSync(backDir).filter(f => f.endsWith('.db'));
     assert.strictEqual(remaining.length, 30);
@@ -329,6 +331,7 @@ describe('performCompleteBackupCycle', () => {
         maxBackups: 30,
       });
       assert.strictEqual(result.backedUp, false);
+      assert.strictEqual(result.filename, undefined);
     });
 
     fs.rmSync(dir, { recursive: true, force: true });
