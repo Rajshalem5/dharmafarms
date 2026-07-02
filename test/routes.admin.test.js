@@ -248,6 +248,17 @@ function request(app, method, path, options = {}) {
 /**
  * Helper: POST form-encoded data and return the response.
  */
+/**
+ * Helper: returns a date string offset by N days from today.
+ * @param {number} offset - negative for past, positive for future
+ * @returns {string} YYYY-MM-DD
+ */
+function dateOffset(offset) {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().slice(0, 10);
+}
+
 function postForm(app, path, data, cookie = '') {
   const body = Object.entries(data)
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
@@ -1429,6 +1440,167 @@ describe('routes/admin.js — setupAdminRoutes', () => {
         });
         assert.strictEqual(res.status, 302);
         assert.match(res.headers.location, /\/admin\/login/);
+      });
+
+      it('renders monthly collection card with ₹ amount', async () => {
+        const repDb = createTestDb();
+        seedDeliveryBoys(repDb);
+        seedCustomers(repDb);
+        // Add payments so monthly collection > 0
+        const insertPay = repDb.prepare(
+          `INSERT INTO payments (customer_id, amount, mode, payment_date, notes, recorded_by)
+           VALUES (?, ?, ?, date('now'), ?, ?)`
+        );
+        insertPay.run(1, 30000, 'cash', 'Monthly', 'Admin');
+        insertPay.run(2, 15000, 'upi', 'Top-up', 'Admin');
+        const repApp = createApp(repDb, 'admin123');
+
+        const loginRes = await postForm(repApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(repApp, 'GET', '/admin/reports', { cookie });
+        assert.strictEqual(res.status, 200);
+        // Check monthly collection card exists with ₹ symbol
+        assert.match(res.body, /Total Collected|₹\s*[0-9,]+/);
+        assert.match(res.body, /2\s*payment/);
+        repDb.close();
+      });
+
+      it('renders delivery success rate card with percentage', async () => {
+        const repDb = createTestDb();
+        seedDeliveryBoys(repDb);
+        seedCustomers(repDb);
+        // Add deliveries with mixed statuses (different dates to avoid UNIQUE constraint)
+        const insertDel = repDb.prepare(
+          `INSERT INTO deliveries (customer_id, delivery_boy_id, delivery_date, status, marked_at)
+           VALUES (?, ?, ?, ?, ?)`
+        );
+        insertDel.run(1, 1, dateOffset(0), 'delivered', '06:15');
+        insertDel.run(2, 1, dateOffset(-1), 'delivered', '06:20');
+        insertDel.run(3, 2, dateOffset(-2), 'delivered', '06:25');
+        insertDel.run(1, 1, dateOffset(-3), 'skipped', '06:30');
+        insertDel.run(2, 1, dateOffset(-4), 'issue', '06:35');
+        const repApp = createApp(repDb, 'admin123');
+
+        const loginRes = await postForm(repApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(repApp, 'GET', '/admin/reports', { cookie });
+        assert.strictEqual(res.status, 200);
+        // 3 delivered out of 5 = 60.0%
+        assert.match(res.body, /Success Rate|60\.0|3 delivered/);
+        repDb.close();
+      });
+
+      it('shows overdue accounts table when customers are overdue', async () => {
+        const repDb = createTestDb();
+        seedDeliveryBoys(repDb);
+        seedCustomers(repDb);
+        // Add many delivered deliveries for customer 1 (C001) with no payments → overdue
+        const insertDel = repDb.prepare(
+          `INSERT INTO deliveries (customer_id, delivery_boy_id, delivery_date, status, marked_at)
+           VALUES (?, ?, ?, ?, ?)`
+        );
+        // 5 delivered days with 0 payments → balanceDays = 0 - 5 = -5 → overdue
+        for (let i = 0; i < 5; i++) {
+          insertDel.run(1, 1, dateOffset(-i), 'delivered', '06:15');
+        }
+        const repApp = createApp(repDb, 'admin123');
+
+        const loginRes = await postForm(repApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(repApp, 'GET', '/admin/reports', { cookie });
+        assert.strictEqual(res.status, 200);
+        // Should show C001 in overdue table
+        assert.match(res.body, /C001/);
+        // Should not show empty state message
+        assert.ok(!res.body.includes('No overdue accounts'));
+        repDb.close();
+      });
+
+      it('shows empty state when no overdue accounts', async () => {
+        const repDb = createTestDb();
+        seedDeliveryBoys(repDb);
+        seedCustomers(repDb);
+        // No deliveries → no consumed days → no overdue
+        const repApp = createApp(repDb, 'admin123');
+
+        const loginRes = await postForm(repApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(repApp, 'GET', '/admin/reports', { cookie });
+        assert.strictEqual(res.status, 200);
+        // Should show empty state
+        assert.match(res.body, /No overdue accounts/);
+        repDb.close();
+      });
+
+      it('renders CSV export buttons with correct URLs', async () => {
+        const repDb = createTestDb();
+        seedDeliveryBoys(repDb);
+        seedCustomers(repDb);
+        const repApp = createApp(repDb, 'admin123');
+
+        const loginRes = await postForm(repApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(repApp, 'GET', '/admin/reports', { cookie });
+        assert.strictEqual(res.status, 200);
+        // Check export URLs
+        assert.match(res.body, /\/admin\/reports\/export\/payments/);
+        assert.match(res.body, /\/admin\/reports\/export\/customers/);
+        assert.match(res.body, /\/admin\/reports\/export\/deliveries/);
+        repDb.close();
+      });
+
+      it('uses tabular-nums class for monetary amounts', async () => {
+        const repDb = createTestDb();
+        seedDeliveryBoys(repDb);
+        seedCustomers(repDb);
+        const insertPay = repDb.prepare(
+          `INSERT INTO payments (customer_id, amount, mode, payment_date, notes, recorded_by)
+           VALUES (?, ?, ?, date('now'), ?, ?)`
+        );
+        insertPay.run(1, 30000, 'cash', 'Monthly', 'Admin');
+        const repApp = createApp(repDb, 'admin123');
+
+        const loginRes = await postForm(repApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(repApp, 'GET', '/admin/reports', { cookie });
+        assert.strictEqual(res.status, 200);
+        assert.match(res.body, /tabular-nums/);
+        repDb.close();
+      });
+
+      it('renders month selector input', async () => {
+        const repDb = createTestDb();
+        seedDeliveryBoys(repDb);
+        seedCustomers(repDb);
+        const repApp = createApp(repDb, 'admin123');
+
+        const loginRes = await postForm(repApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(repApp, 'GET', '/admin/reports', { cookie });
+        assert.strictEqual(res.status, 200);
+        assert.match(res.body, /type="month"/);
+        repDb.close();
       });
     });
 
