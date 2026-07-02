@@ -127,11 +127,14 @@ describe('server.js — createApp', () => {
       const hasEnv = fs.existsSync(envPath);
       if (hasEnv) fs.renameSync(envPath, envPath + '.bak');
 
-      // Preserve other env vars, clear only ADMIN_TELEGRAM_CHAT_ID
-      const savedAdminChat = process.env.ADMIN_TELEGRAM_CHAT_ID;
+      // Explicitly set OTHER required env vars so test doesn't depend on external .env state
       const savedBot = process.env.BOT_TOKEN;
       const savedSession = process.env.SESSION_SECRET;
       const savedAdmin = process.env.ADMIN_PASSWORD;
+      const savedAdminChat = process.env.ADMIN_TELEGRAM_CHAT_ID;
+      process.env.BOT_TOKEN = 'test-bot-token';
+      process.env.SESSION_SECRET = 'test-session-secret';
+      process.env.ADMIN_PASSWORD = 'test-admin-password';
       delete process.env.ADMIN_TELEGRAM_CHAT_ID;
 
       try {
@@ -146,6 +149,32 @@ describe('server.js — createApp', () => {
         process.env.ADMIN_PASSWORD = savedAdmin;
         if (hasEnv) fs.renameSync(envPath + '.bak', envPath);
       }
+    });
+  });
+
+  describe('cron lifecycle', () => {
+    it('exports a stopCronTasks function that stops all scheduled tasks', () => {
+      const { stopCronTasks } = require('../server');
+      assert.strictEqual(typeof stopCronTasks, 'function', 'stopCronTasks should be a function');
+
+      // Should not throw when called with no scheduled tasks
+      assert.doesNotThrow(() => stopCronTasks());
+    });
+
+    it('stops running cron tasks when stopCronTasks is called', () => {
+      const cron = require('node-cron');
+      const { stopCronTasks } = require('../server');
+
+      let runCount = 0;
+      cron.schedule('* * * * *', () => { runCount++; });
+
+      // Stop all tasks
+      stopCronTasks();
+
+      // Verify no tasks remain running
+      const tasks = cron.getTasks();
+      assert.strictEqual(tasks.size, 0, 'All cron tasks should be removed after stopCronTasks');
+      assert.strictEqual(runCount, 0, 'Task should not have run');
     });
   });
 
