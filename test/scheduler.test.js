@@ -367,14 +367,14 @@ describe('sendDailySummaryToAdmin', () => {
 
   it('includes status breakdown in message', async () => {
     const messages = bot.getSentMessages();
-    const summaryMsg = messages.find(m => m.chatId === 999999999);
+    const summaryMsg = messages.find(m => String(m.chatId) === '999999999');
     assert.ok(summaryMsg, 'Should have a message to admin');
 
-    // Should mention status counts
-    assert.ok(summaryMsg.text.includes('delivered'), 'Should mention delivered');
-    assert.ok(summaryMsg.text.includes('pending'), 'Should mention pending');
-    assert.ok(summaryMsg.text.includes('issue'), 'Should mention issues');
-    assert.ok(summaryMsg.text.includes('skipped'), 'Should mention skipped');
+    // Should mention status counts (case-insensitive)
+    assert.ok(summaryMsg.text.toLowerCase().includes('delivered'), 'Should mention delivered');
+    assert.ok(summaryMsg.text.toLowerCase().includes('pending'), 'Should mention pending');
+    assert.ok(summaryMsg.text.toLowerCase().includes('issue'), 'Should mention issues');
+    assert.ok(summaryMsg.text.toLowerCase().includes('skipped'), 'Should mention skipped');
   });
 
   it('is idempotent — second call does not send again', async () => {

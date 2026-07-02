@@ -153,6 +153,24 @@ function initializeDatabase() {
     ).run(2, 'v2_create_payments_table');
   }
 
+  // --- Migration v3: Scheduler log table ---
+  if (currentVersion < 3) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS scheduler_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        log_date TEXT NOT NULL,
+        executed_at TEXT DEFAULT (datetime('now')),
+        details TEXT,
+        UNIQUE(type, log_date)
+      );
+    `);
+
+    db.prepare(
+      'INSERT INTO _migrations (version, name) VALUES (?, ?)'
+    ).run(3, 'v3_create_scheduler_log');
+  }
+
   // --- Seed delivery boys ---
   const seedBoy = db.prepare(
     'INSERT OR IGNORE INTO delivery_boys (id, name, phone, region) VALUES (?, ?, ?, ?)'
