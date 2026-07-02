@@ -120,29 +120,29 @@
             <thead>
               <tr>
                 <th>Date</th>
-                <th>Amount (Rs)</th>
                 <th>Mode</th>
+                <th>Amount (₹)</th>
                 <th>Notes</th>
                 <th>Recorded By</th>
-                <th>Running Total</th>
+                <th>Running Balance</th>
               </tr>
             </thead>
             <tbody>
               <% ledger.rows.forEach(function(row) { %>
                 <tr>
                   <td><%= row.payment_date %></td>
-                  <td><%= (+row.amount_rupees).toLocaleString('en-IN', { minimumFractionDigits: 2 }) %></td>
-                  <td><%= row.mode.replace('_', ' ') %></td>
+                  <td><%= row.mode.charAt(0).toUpperCase() + row.mode.slice(1).replace('_', ' ') %></td>
+                  <td class="font-medium tabular-nums">₹ <%= (+row.amount_rupees).toLocaleString('en-IN', { minimumFractionDigits: 2 }) %></td>
                   <td><%= row.notes || '-' %></td>
                   <td><%= row.recorded_by || '-' %></td>
-                  <td class="font-medium">Rs <%= (+row.runningTotalRupees).toLocaleString('en-IN', { minimumFractionDigits: 2 }) %></td>
+                  <td class="font-medium tabular-nums">₹ <%= (+row.runningTotalRupees).toLocaleString('en-IN', { minimumFractionDigits: 2 }) %></td>
                 </tr>
               <% }); %>
             </tbody>
             <tfoot>
-              <tr class="font-bold">
-                <td colspan="5" class="text-right">Total:</td>
-                <td>Rs <%= (+ledger.rows[ledger.rows.length - 1].runningTotalRupees).toLocaleString('en-IN', { minimumFractionDigits: 2 }) %></td>
+              <tr class="font-bold bg-gray-50">
+                <td colspan="5" class="text-right text-sm text-gray-600">Total:</td>
+                <td class="tabular-nums">₹ <%= (+ledger.rows[ledger.rows.length - 1].runningTotalRupees).toLocaleString('en-IN', { minimumFractionDigits: 2 }) %></td>
               </tr>
             </tfoot>
           </table>
