@@ -13,6 +13,16 @@ const { getTodaysRouteForBoy } = require('../services/dispatch');
 const CUSTOMER_CODE_RE = /^(C\d{3})$/i;
 
 /**
+ * Returns true if the status is terminal — no further transitions allowed.
+ * Terminal statuses: 'delivered', 'skipped'.
+ * @param {string} status
+ * @returns {boolean}
+ */
+function isTerminalStatus(status) {
+  return status === 'delivered' || status === 'skipped';
+}
+
+/**
  * Registers message handlers on the bot instance.
  * @param {import('node-telegram-bot-api')} bot
  * @param {function} getDb - Function that returns the database instance
@@ -145,7 +155,7 @@ async function handleRoute(bot, chatId, db, boy) {
 
 /**
  * /done <code> — Mark a delivery as delivered, decrement remaining_days.
- * Duplicate: "Already marked as <status> at HH:MM"
+ * Blocked if status is 'delivered' or 'skipped' (terminal).
  */
 async function handleDone(bot, chatId, db, boy, args) {
   const code = args[0];
@@ -170,12 +180,18 @@ async function handleDone(bot, chatId, db, boy, args) {
     );
   }
 
-  // Check if already marked
-  if (delivery.status !== 'pending') {
+  // Block transitions from terminal statuses (delivered/skipped)
+  if (isTerminalStatus(delivery.status)) {
     const time = delivery.marked_at || 'unknown';
+    if (delivery.status === 'delivered') {
+      return bot.sendMessage(
+        chatId,
+        `Already marked as delivered at ${time}.`
+      );
+    }
     return bot.sendMessage(
       chatId,
-      `Already marked as "${delivery.status}" at ${time}.`
+      `Cannot mark as delivered — already marked as ${delivery.status} at ${time}.`
     );
   }
 
@@ -199,6 +215,7 @@ async function handleDone(bot, chatId, db, boy, args) {
 
 /**
  * /skip <code> — Mark a delivery as skipped, increment remaining_days.
+ * Blocked if status is 'delivered' or 'skipped' (terminal).
  */
 async function handleSkip(bot, chatId, db, boy, args) {
   const code = args[0];
@@ -210,7 +227,7 @@ async function handleSkip(bot, chatId, db, boy, args) {
   }
 
   const delivery = db.prepare(`
-    SELECT d.id, d.status, c.id AS customer_id, c.code, c.name
+    SELECT d.id, d.status, d.marked_at, c.id AS customer_id, c.code, c.name
     FROM deliveries d
     JOIN customers c ON c.id = d.customer_id
     WHERE c.code = ? AND d.delivery_date = date('now') AND c.delivery_boy_id = ?
@@ -223,10 +240,18 @@ async function handleSkip(bot, chatId, db, boy, args) {
     );
   }
 
-  if (delivery.status !== 'pending') {
+  // Block transitions from terminal statuses (delivered/skipped)
+  if (isTerminalStatus(delivery.status)) {
+    const time = delivery.marked_at || 'unknown';
+    if (delivery.status === 'skipped') {
+      return bot.sendMessage(
+        chatId,
+        `Already marked as skipped at ${time}.`
+      );
+    }
     return bot.sendMessage(
       chatId,
-      `Customer ${code} has already been marked as "${delivery.status}". Cannot skip.`
+      `Cannot skip — already marked as ${delivery.status} at ${time}.`
     );
   }
 
@@ -250,6 +275,7 @@ async function handleSkip(bot, chatId, db, boy, args) {
 
 /**
  * /issue <code> <reason> — Record a delivery issue with a reason.
+ * Blocked if status is 'delivered' or 'skipped' (terminal).
  * Missing reason: "Please include a reason"
  */
 async function handleIssue(bot, chatId, db, boy, args) {
@@ -270,7 +296,7 @@ async function handleIssue(bot, chatId, db, boy, args) {
   }
 
   const delivery = db.prepare(`
-    SELECT d.id, d.status, c.id AS customer_id, c.code, c.name
+    SELECT d.id, d.status, d.marked_at, c.id AS customer_id, c.code, c.name
     FROM deliveries d
     JOIN customers c ON c.id = d.customer_id
     WHERE c.code = ? AND d.delivery_date = date('now') AND c.delivery_boy_id = ?
@@ -280,6 +306,15 @@ async function handleIssue(bot, chatId, db, boy, args) {
     return bot.sendMessage(
       chatId,
       `Customer ${code} not found in today's route. Please check the code and try again.`
+    );
+  }
+
+  // Block transitions from terminal statuses (delivered/skipped)
+  if (isTerminalStatus(delivery.status)) {
+    const time = delivery.marked_at || 'unknown';
+    return bot.sendMessage(
+      chatId,
+      `Cannot mark issue — already marked as ${delivery.status} at ${time}.`
     );
   }
 
@@ -297,6 +332,7 @@ async function handleIssue(bot, chatId, db, boy, args) {
 
 /**
  * /arriving <code> — Mark a delivery as arriving.
+ * Blocked if status is 'delivered' or 'skipped' (terminal).
  */
 async function handleArriving(bot, chatId, db, boy, args) {
   const code = args[0];
@@ -308,7 +344,7 @@ async function handleArriving(bot, chatId, db, boy, args) {
   }
 
   const delivery = db.prepare(`
-    SELECT d.id, d.status, c.id AS customer_id, c.code, c.name
+    SELECT d.id, d.status, d.marked_at, c.id AS customer_id, c.code, c.name
     FROM deliveries d
     JOIN customers c ON c.id = d.customer_id
     WHERE c.code = ? AND d.delivery_date = date('now') AND c.delivery_boy_id = ?
@@ -318,6 +354,15 @@ async function handleArriving(bot, chatId, db, boy, args) {
     return bot.sendMessage(
       chatId,
       `Customer ${code} not found in today's route. Please check the code and try again.`
+    );
+  }
+
+  // Block transitions from terminal statuses (delivered/skipped)
+  if (isTerminalStatus(delivery.status)) {
+    const time = delivery.marked_at || 'unknown';
+    return bot.sendMessage(
+      chatId,
+      `Cannot mark as arriving — already marked as ${delivery.status} at ${time}.`
     );
   }
 
