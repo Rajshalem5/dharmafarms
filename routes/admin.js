@@ -370,6 +370,114 @@ function setupAdminRoutes(app, db) {
     const result = regenerateDispatch(db);
     res.json(result);
   });
+
+  // ── Delivery boy list ────────────────────────────────────────────
+
+  app.get('/admin/delivery-boys', requireAuth, (req, res) => {
+    const deliveryBoys = db.prepare(
+      "SELECT * FROM delivery_boys ORDER BY name ASC"
+    ).all();
+
+    const flash = req.session.flash || null;
+    req.session.flash = null;
+
+    renderView(res, 'admin/delivery-boys', {
+      deliveryBoys: deliveryBoys || [],
+      flash,
+      activePage: 'delivery-boys',
+    });
+  });
+
+  // ── Get delivery boy JSON (for edit modal) ───────────────────────
+
+  app.get('/admin/delivery-boys/:id', requireAuth, (req, res) => {
+    const boy = db.prepare(
+      'SELECT * FROM delivery_boys WHERE id = ?'
+    ).get(req.params.id);
+
+    if (!boy) {
+      return res.status(404).json({ error: 'Delivery boy not found' });
+    }
+
+    res.json(boy);
+  });
+
+  // ── Add delivery boy ─────────────────────────────────────────────
+
+  app.post('/admin/delivery-boys', requireAuth, (req, res) => {
+    const { name, phone, region } = req.body;
+
+    if (!name || !name.trim()) {
+      req.session.flash = { type: 'error', message: 'Name is required.' };
+      return res.redirect('/admin/delivery-boys');
+    }
+
+    if (!PHONE_RE.test(phone)) {
+      req.session.flash = { type: 'error', message: 'Invalid phone number. Must be 10-15 digits.' };
+      return res.redirect('/admin/delivery-boys');
+    }
+
+    db.prepare(
+      'INSERT INTO delivery_boys (name, phone, region) VALUES (?, ?, ?)'
+    ).run(name.trim(), phone, region && region.trim() ? region.trim() : null);
+
+    req.session.flash = { type: 'success', message: `Delivery boy ${name.trim()} added successfully.` };
+    res.redirect('/admin/delivery-boys');
+  });
+
+  // ── Update delivery boy ──────────────────────────────────────────
+
+  app.post('/admin/delivery-boys/:id/edit', requireAuth, (req, res) => {
+    const { name, phone, region } = req.body;
+    const boyId = req.params.id;
+
+    if (!name || !name.trim()) {
+      req.session.flash = { type: 'error', message: 'Name is required.' };
+      return res.redirect('/admin/delivery-boys');
+    }
+
+    if (!PHONE_RE.test(phone)) {
+      req.session.flash = { type: 'error', message: 'Invalid phone number. Must be 10-15 digits.' };
+      return res.redirect('/admin/delivery-boys');
+    }
+
+    const info = db.prepare(
+      'UPDATE delivery_boys SET name = ?, phone = ?, region = ? WHERE id = ?'
+    ).run(name.trim(), phone, region && region.trim() ? region.trim() : null, boyId);
+
+    if (info.changes === 0) {
+      req.session.flash = { type: 'error', message: 'Delivery boy not found.' };
+    } else {
+      req.session.flash = { type: 'success', message: 'Delivery boy updated successfully.' };
+    }
+
+    res.redirect('/admin/delivery-boys');
+  });
+
+  // ── Toggle delivery boy status ───────────────────────────────────
+
+  app.post('/admin/delivery-boys/:id/toggle-status', requireAuth, (req, res) => {
+    const boy = db.prepare(
+      'SELECT id, name, status FROM delivery_boys WHERE id = ?'
+    ).get(req.params.id);
+
+    if (!boy) {
+      req.session.flash = { type: 'error', message: 'Delivery boy not found.' };
+      return res.redirect('/admin/delivery-boys');
+    }
+
+    const newStatus = boy.status === 'active' ? 'inactive' : 'active';
+
+    db.prepare('UPDATE delivery_boys SET status = ? WHERE id = ?')
+      .run(newStatus, boy.id);
+
+    req.session.flash = {
+      type: 'success',
+      message: `${boy.name} is now ${newStatus}.`,
+    };
+
+    res.redirect('/admin/delivery-boys');
+  });
 }
 
 module.exports = { setupAdminRoutes };
