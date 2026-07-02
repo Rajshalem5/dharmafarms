@@ -71,6 +71,18 @@ function createTestDb() {
       UNIQUE(customer_id, delivery_date)
     );
 
+    CREATE TABLE payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL REFERENCES customers(id),
+      amount INTEGER NOT NULL,
+      mode VARCHAR(20) NOT NULL,
+      payment_date DATE NOT NULL,
+      notes TEXT,
+      recorded_by VARCHAR(100),
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX idx_payments_customer ON payments(customer_id);
     CREATE INDEX idx_deliveries_date ON deliveries(delivery_date);
     CREATE INDEX idx_deliveries_boy_date ON deliveries(delivery_boy_id, delivery_date);
     CREATE INDEX idx_deliveries_status ON deliveries(status);
@@ -78,6 +90,15 @@ function createTestDb() {
   `);
 
   return db;
+}
+
+function seedPayments(db) {
+  const insertPayment = db.prepare(
+    `INSERT INTO payments (customer_id, amount, mode, payment_date, notes, recorded_by)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  );
+  insertPayment.run(1, 30000, 'cash', '2026-07-01', 'Monthly payment', 'Admin');
+  insertPayment.run(1, 15000, 'upi', '2026-07-05', 'Partial top-up', 'Admin');
 }
 
 function seedDeliveryBoys(db) {
@@ -1103,6 +1124,271 @@ describe('routes/admin.js — setupAdminRoutes', () => {
         assert.strictEqual(res.status, 302);
 
         togDb.close();
+      });
+    });
+
+    // ── GET /admin/payments ─────────────────────────────────────────
+
+    describe('GET /admin/payments — payments page', () => {
+      it('returns 200 and renders payments page when authenticated', async () => {
+        const payDb = createTestDb();
+        seedDeliveryBoys(payDb);
+        seedCustomers(payDb);
+        const payApp = createApp(payDb, 'admin123');
+
+        const loginRes = await postForm(payApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(payApp, 'GET', '/admin/payments', { cookie });
+        assert.strictEqual(res.status, 200);
+        assert.match(res.headers['content-type'], /html/);
+        payDb.close();
+      });
+
+      it('redirects to login when not authenticated', async () => {
+        const res = await request(app, 'GET', '/admin/payments', {
+          followRedirect: false,
+        });
+        assert.strictEqual(res.status, 302);
+        assert.match(res.headers.location, /\/admin\/login/);
+      });
+    });
+
+    // ── POST /admin/payments ────────────────────────────────────────
+
+    describe('POST /admin/payments — record payment', () => {
+      it('records a valid payment and redirects', async () => {
+        const payDb = createTestDb();
+        seedDeliveryBoys(payDb);
+        seedCustomers(payDb);
+        const payApp = createApp(payDb, 'admin123');
+
+        const loginRes = await postForm(payApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await postForm(payApp, '/admin/payments', {
+          customer_id: 1,
+          amount: 500,
+          mode: 'cash',
+          payment_date: '2026-07-02',
+          notes: 'Test payment',
+        }, cookie);
+
+        assert.strictEqual(res.status, 302);
+
+        const payment = payDb.prepare('SELECT * FROM payments WHERE customer_id = 1').get();
+        assert.ok(payment, 'Payment should exist in DB');
+        assert.strictEqual(payment.amount, 50000); // 500 * 100 = 50000 paise
+
+        payDb.close();
+      });
+
+      it('rejects empty customer_id', async () => {
+        const valDb = createTestDb();
+        seedDeliveryBoys(valDb);
+        seedCustomers(valDb);
+        const valApp = createApp(valDb, 'admin123');
+
+        const loginRes = await postForm(valApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await postForm(valApp, '/admin/payments', {
+          customer_id: '',
+          amount: 500,
+          mode: 'cash',
+          payment_date: '2026-07-02',
+        }, cookie);
+
+        assert.strictEqual(res.status, 302);
+        valDb.close();
+      });
+
+      it('rejects negative amount', async () => {
+        const valDb = createTestDb();
+        seedDeliveryBoys(valDb);
+        seedCustomers(valDb);
+        const valApp = createApp(valDb, 'admin123');
+
+        const loginRes = await postForm(valApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await postForm(valApp, '/admin/payments', {
+          customer_id: 1,
+          amount: -100,
+          mode: 'cash',
+          payment_date: '2026-07-02',
+        }, cookie);
+
+        assert.strictEqual(res.status, 302);
+        valDb.close();
+      });
+    });
+
+    // ── GET /admin/payments/ledger/:id ─────────────────────────────
+
+    describe('GET /admin/payments/ledger/:id — customer ledger', () => {
+      it('returns payment ledger as JSON for a customer', async () => {
+        const ledDb = createTestDb();
+        seedDeliveryBoys(ledDb);
+        seedCustomers(ledDb);
+        seedPayments(ledDb);
+        const ledApp = createApp(ledDb, 'admin123');
+
+        const loginRes = await postForm(ledApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(ledApp, 'GET', '/admin/payments/ledger/1', {
+          cookie,
+          headers: { 'Accept': 'application/json' },
+        });
+
+        assert.strictEqual(res.status, 200);
+        assert.match(res.headers['content-type'], /json/);
+
+        const data = JSON.parse(res.body);
+        assert.ok(Array.isArray(data.ledger));
+        assert.strictEqual(data.ledger.length, 2);
+        assert.strictEqual(data.ledger[0].amount, 30000);
+
+        ledDb.close();
+      });
+
+      it('returns 404 for non-existent customer', async () => {
+        const ledDb = createTestDb();
+        const ledApp = createApp(ledDb, 'admin123');
+
+        const loginRes = await postForm(ledApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(ledApp, 'GET', '/admin/payments/ledger/999', {
+          cookie,
+          headers: { 'Accept': 'application/json' },
+        });
+
+        assert.strictEqual(res.status, 404);
+        ledDb.close();
+      });
+    });
+
+    // ── GET /admin/reports ─────────────────────────────────────────
+
+    describe('GET /admin/reports — reports page', () => {
+      it('returns 200 and renders reports page when authenticated', async () => {
+        const repDb = createTestDb();
+        seedDeliveryBoys(repDb);
+        seedCustomers(repDb);
+        const repApp = createApp(repDb, 'admin123');
+
+        const loginRes = await postForm(repApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(repApp, 'GET', '/admin/reports', { cookie });
+        assert.strictEqual(res.status, 200);
+        assert.match(res.headers['content-type'], /html/);
+        repDb.close();
+      });
+
+      it('redirects to login when not authenticated', async () => {
+        const res = await request(app, 'GET', '/admin/reports', {
+          followRedirect: false,
+        });
+        assert.strictEqual(res.status, 302);
+        assert.match(res.headers.location, /\/admin\/login/);
+      });
+    });
+
+    // ── GET /admin/reports/export/:type ───────────────────────────
+
+    describe('GET /admin/reports/export/:type — CSV export', () => {
+      it('exports payments CSV with correct headers', async () => {
+        const csvDb = createTestDb();
+        seedDeliveryBoys(csvDb);
+        seedCustomers(csvDb);
+        seedPayments(csvDb);
+        const csvApp = createApp(csvDb, 'admin123');
+
+        const loginRes = await postForm(csvApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(csvApp, 'GET', '/admin/reports/export/payments', { cookie });
+        assert.strictEqual(res.status, 200);
+        assert.match(res.headers['content-type'], /csv/);
+        assert.ok(res.body.includes('customer_code'));
+        assert.ok(res.body.includes('C001'));
+
+        csvDb.close();
+      });
+
+      it('exports customers CSV with correct headers', async () => {
+        const csvDb = createTestDb();
+        seedDeliveryBoys(csvDb);
+        seedCustomers(csvDb);
+        const csvApp = createApp(csvDb, 'admin123');
+
+        const loginRes = await postForm(csvApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(csvApp, 'GET', '/admin/reports/export/customers', { cookie });
+        assert.strictEqual(res.status, 200);
+        assert.match(res.headers['content-type'], /csv/);
+        assert.ok(res.body.includes('code'));
+        assert.ok(res.body.includes('C001'));
+
+        csvDb.close();
+      });
+
+      it('exports deliveries CSV with correct headers', async () => {
+        const csvDb = createTestDb();
+        seedDeliveryBoys(csvDb);
+        seedCustomers(csvDb);
+        seedDeliveries(csvDb);
+        const csvApp = createApp(csvDb, 'admin123');
+
+        const loginRes = await postForm(csvApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(csvApp, 'GET', '/admin/reports/export/deliveries', { cookie });
+        assert.strictEqual(res.status, 200);
+        assert.match(res.headers['content-type'], /csv/);
+        assert.ok(res.body.includes('customer_code'));
+        assert.ok(res.body.includes('C001'));
+
+        csvDb.close();
+      });
+
+      it('returns 400 for invalid export type', async () => {
+        const csvDb = createTestDb();
+        const csvApp = createApp(csvDb, 'admin123');
+
+        const loginRes = await postForm(csvApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(csvApp, 'GET', '/admin/reports/export/invalid', { cookie });
+        assert.strictEqual(res.status, 400);
+
+        csvDb.close();
       });
     });
   });

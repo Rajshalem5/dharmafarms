@@ -18,7 +18,7 @@ const dotenv = require('dotenv');
 const express = require('express');
 const path = require('path');
 const session = require('express-session');
-const TelegramBot = require('node-telegram-bot-api');
+const { TelegramBot } = require('node-telegram-bot-api');
 
 const { initializeDatabase, getDb, getAdminPasswordHash } = require('./db');
 const { setupAdminRoutes } = require('./routes/admin');
