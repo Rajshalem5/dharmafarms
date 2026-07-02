@@ -1181,6 +1181,100 @@ describe('routes/admin.js — setupAdminRoutes', () => {
         assert.strictEqual(res.status, 302);
         assert.match(res.headers.location, /\/admin\/login/);
       });
+
+      it('renders ledger filter section with customer dropdown', async () => {
+        const payDb = createTestDb();
+        seedDeliveryBoys(payDb);
+        seedCustomers(payDb);
+        const payApp = createApp(payDb, 'admin123');
+
+        const loginRes = await postForm(payApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(payApp, 'GET', '/admin/payments', { cookie });
+
+        // Should have the filter section
+        assert.match(res.body, /View Customer Ledger/);
+        assert.match(res.body, /name="customer_id".*id="filter_customer_id"/);
+
+        payDb.close();
+      });
+
+      it('renders ledger table with correct column order when customer selected', async () => {
+        const payDb = createTestDb();
+        seedDeliveryBoys(payDb);
+        seedCustomers(payDb);
+        seedPayments(payDb);
+        const payApp = createApp(payDb, 'admin123');
+
+        const loginRes = await postForm(payApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(payApp, 'GET', '/admin/payments?customer_id=1', { cookie });
+
+        // Should show ledger header with customer name
+        assert.match(res.body, /Ledger/);
+        assert.match(res.body, /C001/);
+        assert.match(res.body, /Ram/);
+
+        // Should have all column headers in correct order
+        // Column order: Date, Mode, Amount (₹), Notes, Recorded By, Running Balance
+        const colOrder = /<th>Date<\/th>.*<th>Mode<\/th>.*<th>Amount\s*\(₹\)<\/th>.*<th>Notes<\/th>.*<th>Recorded By<\/th>.*<th>Running Balance<\/th>/s;
+        assert.match(res.body, colOrder);
+
+        // Should show payment data rows
+        assert.match(res.body, /2026-07-01/);
+        assert.match(res.body, /2026-07-05/);
+
+        payDb.close();
+      });
+
+      it('shows balance card with days when customer selected', async () => {
+        const payDb = createTestDb();
+        seedDeliveryBoys(payDb);
+        seedCustomers(payDb);
+        seedPayments(payDb);
+        const payApp = createApp(payDb, 'admin123');
+
+        const loginRes = await postForm(payApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(payApp, 'GET', '/admin/payments?customer_id=1', { cookie });
+
+        // Should show balance stat cards
+        assert.match(res.body, /Paid Days/);
+        assert.match(res.body, /Consumed Days/);
+        assert.match(res.body, /Balance Days/);
+        assert.match(res.body, /Status/);
+
+        payDb.close();
+      });
+
+      it('shows empty state when selected customer has no payments', async () => {
+        const payDb = createTestDb();
+        seedDeliveryBoys(payDb);
+        seedCustomers(payDb);
+        const payApp = createApp(payDb, 'admin123');
+
+        const loginRes = await postForm(payApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        // Customer 2 (Shyam) has no payments seeded
+        const res = await request(payApp, 'GET', '/admin/payments?customer_id=2', { cookie });
+
+        // Should show empty state
+        assert.match(res.body, /No payments recorded for this customer/);
+
+        payDb.close();
+      });
     });
 
     // ── POST /admin/payments ────────────────────────────────────────
