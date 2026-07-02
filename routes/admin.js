@@ -542,6 +542,12 @@ function setupAdminRoutes(app, db) {
       return res.redirect('/admin/payments');
     }
 
+    // Validate payment date format (YYYY-MM-DD)
+    if (!payment_date || !/^\d{4}-\d{2}-\d{2}$/.test(payment_date)) {
+      req.session.flash = { type: 'error', message: 'Invalid payment date format.' };
+      return res.redirect('/admin/payments');
+    }
+
     // Verify customer exists
     const customer = db.prepare('SELECT id FROM customers WHERE id = ?').get(customer_id);
     if (!customer) {
@@ -736,9 +742,10 @@ function setupAdminRoutes(app, db) {
     }
 
     const { csv, filename } = csvExports[type]();
-    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send(csv);
+    // Prepend BOM for Excel UTF-8 handling
+    res.send('﻿' + csv);
   });
 }
 
@@ -749,7 +756,8 @@ function setupAdminRoutes(app, db) {
 function escapeCsv(value) {
   if (value === null || value === undefined) return '';
   const str = String(value);
-  if (/^[=+\-@]/.test(str)) {
+  // Strip leading whitespace, then check for formula-injection chars
+  if (/^\s*[=+\-@]/.test(str)) {
     return "'" + str;
   }
   if (/,|"|\n/.test(str)) {
