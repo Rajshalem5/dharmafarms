@@ -180,8 +180,7 @@ function startServer() {
     const backupDir = path.join(__dirname, 'backup');
     const backupResult = performCompleteBackupCycle({ dbPath, backupDir, maxBackups: 30 });
     if (backupResult.backedUp) {
-      const datePart = new Date().toISOString().slice(0, 10);
-      console.log('[Boot] Database backed up to backup/dharma-farms-' + datePart + '.db');
+      console.log('[Boot] Database backed up to backup/' + backupResult.filename);
     } else {
       console.log('[Boot] Database backup already exists for today, skipping');
     }

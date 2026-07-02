@@ -128,7 +128,7 @@ function cleanupOldBackups(backupDir, maxBackups) {
  * @param {string} options.dbPath - Path to the source database file
  * @param {string} options.backupDir - Path to the backup directory
  * @param {number} [options.maxBackups=30] - Maximum number of backup files to keep
- * @returns {{ backedUp: boolean, deleted: number }}
+ * @returns {{ backedUp: boolean, deleted: number, filename: string|undefined }}
  */
 function performCompleteBackupCycle({ dbPath, backupDir, maxBackups }) {
   // Default maxBackups to 30 if not provided
@@ -137,7 +137,7 @@ function performCompleteBackupCycle({ dbPath, backupDir, maxBackups }) {
   // Step 1: Check if today's backup already exists
   if (todayBackupExists(backupDir)) {
     console.log('[Backup] Backup already exists for today, skipping');
-    return { backedUp: false, deleted: 0 };
+    return { backedUp: false, deleted: 0, filename: undefined };
   }
 
   // Step 2: Build destination path and copy the database
@@ -146,7 +146,7 @@ function performCompleteBackupCycle({ dbPath, backupDir, maxBackups }) {
 
   const backedUp = backupDatabase(dbPath, destPath);
   if (!backedUp) {
-    return { backedUp: false, deleted: 0 };
+    return { backedUp: false, deleted: 0, filename: undefined };
   }
 
   // Step 3: Clean up old backups
@@ -158,7 +158,7 @@ function performCompleteBackupCycle({ dbPath, backupDir, maxBackups }) {
     (deleted > 0 ? ', cleaned up ' + deleted + ' old backups' : '')
   );
 
-  return { backedUp: true, deleted };
+  return { backedUp: true, deleted, filename: destFilename };
 }
 
 module.exports = {
