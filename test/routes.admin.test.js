@@ -826,5 +826,284 @@ describe('routes/admin.js — setupAdminRoutes', () => {
         assert.match(res.headers.location, /\/admin\/login/);
       });
     });
+
+    // ── Delivery Boy Routes ──────────────────────────────────────
+
+    describe('GET /admin/delivery-boys — list', () => {
+      it('returns 200 and lists all delivery boys', async () => {
+        const dbBoy = createTestDb();
+        seedDeliveryBoys(dbBoy);
+        const boyApp = createApp(dbBoy, 'admin123');
+
+        const loginRes = await postForm(boyApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(boyApp, 'GET', '/admin/delivery-boys', { cookie });
+        assert.strictEqual(res.status, 200);
+        assert.match(res.headers['content-type'], /html/);
+        dbBoy.close();
+      });
+
+      it('shows empty state when no delivery boys exist', async () => {
+        const emptyDb = createTestDb();
+        const emptyApp = createApp(emptyDb, 'admin123');
+
+        const loginRes = await postForm(emptyApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(emptyApp, 'GET', '/admin/delivery-boys', { cookie });
+        assert.strictEqual(res.status, 200);
+        assert.match(res.headers['content-type'], /html/);
+        emptyDb.close();
+      });
+
+      it('requires authentication', async () => {
+        const res = await request(app, 'GET', '/admin/delivery-boys', {
+          followRedirect: false,
+        });
+        assert.strictEqual(res.status, 302);
+        assert.match(res.headers.location, /\/admin\/login/);
+      });
+    });
+
+    describe('GET /admin/delivery-boys/:id — get JSON', () => {
+      it('returns delivery boy data as JSON', async () => {
+        const dbBoy = createTestDb();
+        seedDeliveryBoys(dbBoy);
+        const boyApp = createApp(dbBoy, 'admin123');
+
+        const loginRes = await postForm(boyApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(boyApp, 'GET', '/admin/delivery-boys/1', {
+          cookie,
+          headers: { 'Accept': 'application/json' },
+        });
+
+        assert.strictEqual(res.status, 200);
+        assert.match(res.headers['content-type'], /json/);
+        dbBoy.close();
+      });
+
+      it('returns 404 for non-existent delivery boy', async () => {
+        const dbBoy = createTestDb();
+        const boyApp = createApp(dbBoy, 'admin123');
+
+        const loginRes = await postForm(boyApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(boyApp, 'GET', '/admin/delivery-boys/999', {
+          cookie,
+          headers: { 'Accept': 'application/json' },
+        });
+
+        assert.strictEqual(res.status, 404);
+        dbBoy.close();
+      });
+    });
+
+    describe('POST /admin/delivery-boys — create', () => {
+      it('creates a new delivery boy', async () => {
+        const addDb = createTestDb();
+        const addApp = createApp(addDb, 'admin123');
+
+        const loginRes = await postForm(addApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        await postForm(addApp, '/admin/delivery-boys', {
+          name: 'Kumar',
+          phone: '9999999999',
+          region: 'North',
+        }, cookie);
+
+        const boy = addDb.prepare("SELECT * FROM delivery_boys WHERE name = 'Kumar'").get();
+        assert.ok(boy, 'Delivery boy should exist');
+        assert.strictEqual(boy.phone, '9999999999');
+        assert.strictEqual(boy.region, 'North');
+        assert.strictEqual(boy.status, 'active');
+
+        addDb.close();
+      });
+
+      it('rejects missing name', async () => {
+        const valDb = createTestDb();
+        const valApp = createApp(valDb, 'admin123');
+
+        const loginRes = await postForm(valApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await postForm(valApp, '/admin/delivery-boys', {
+          name: '',
+          phone: '9999999999',
+          region: 'North',
+        }, cookie);
+
+        assert.strictEqual(res.status, 302);
+        valDb.close();
+      });
+
+      it('rejects invalid phone number', async () => {
+        const valDb = createTestDb();
+        const valApp = createApp(valDb, 'admin123');
+
+        const loginRes = await postForm(valApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await postForm(valApp, '/admin/delivery-boys', {
+          name: 'Test',
+          phone: 'abc',
+          region: '',
+        }, cookie);
+
+        assert.strictEqual(res.status, 302);
+        valDb.close();
+      });
+
+      it('creates delivery boy with null region when region is empty', async () => {
+        const addDb = createTestDb();
+        const addApp = createApp(addDb, 'admin123');
+
+        const loginRes = await postForm(addApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        await postForm(addApp, '/admin/delivery-boys', {
+          name: 'NoRegion',
+          phone: '8888888888',
+          region: '',
+        }, cookie);
+
+        const boy = addDb.prepare("SELECT * FROM delivery_boys WHERE name = 'NoRegion'").get();
+        assert.ok(boy);
+        assert.strictEqual(boy.region, null);
+
+        addDb.close();
+      });
+    });
+
+    describe('POST /admin/delivery-boys/:id/edit — update', () => {
+      it('updates delivery boy details', async () => {
+        const editDb = createTestDb();
+        seedDeliveryBoys(editDb);
+        const editApp = createApp(editDb, 'admin123');
+
+        const loginRes = await postForm(editApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        await postForm(editApp, '/admin/delivery-boys/1/edit', {
+          name: 'RajuUpdated',
+          phone: '9111111111',
+          region: 'South',
+        }, cookie);
+
+        const boy = editDb.prepare('SELECT * FROM delivery_boys WHERE id = 1').get();
+        assert.strictEqual(boy.name, 'RajuUpdated');
+        assert.strictEqual(boy.phone, '9111111111');
+        assert.strictEqual(boy.region, 'South');
+
+        editDb.close();
+      });
+
+      it('rejects update with missing name', async () => {
+        const valDb = createTestDb();
+        seedDeliveryBoys(valDb);
+        const valApp = createApp(valDb, 'admin123');
+
+        const loginRes = await postForm(valApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await postForm(valApp, '/admin/delivery-boys/1/edit', {
+          name: '',
+          phone: '9111111111',
+          region: '',
+        }, cookie);
+
+        assert.strictEqual(res.status, 302);
+        valDb.close();
+      });
+    });
+
+    describe('POST /admin/delivery-boys/:id/toggle-status', () => {
+      it('toggles active to inactive', async () => {
+        const togDb = createTestDb();
+        seedDeliveryBoys(togDb);
+        const togApp = createApp(togDb, 'admin123');
+
+        const loginRes = await postForm(togApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        assert.strictEqual(
+          togDb.prepare('SELECT status FROM delivery_boys WHERE id = 1').get().status,
+          'active'
+        );
+
+        await postForm(togApp, '/admin/delivery-boys/1/toggle-status', {}, cookie);
+
+        assert.strictEqual(
+          togDb.prepare('SELECT status FROM delivery_boys WHERE id = 1').get().status,
+          'inactive'
+        );
+
+        togDb.close();
+      });
+
+      it('toggles inactive to active', async () => {
+        const togDb = createTestDb();
+        seedDeliveryBoys(togDb);
+        togDb.prepare("UPDATE delivery_boys SET status = 'inactive' WHERE id = 2").run();
+        const togApp = createApp(togDb, 'admin123');
+
+        const loginRes = await postForm(togApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        await postForm(togApp, '/admin/delivery-boys/2/toggle-status', {}, cookie);
+
+        assert.strictEqual(
+          togDb.prepare('SELECT status FROM delivery_boys WHERE id = 2').get().status,
+          'active'
+        );
+
+        togDb.close();
+      });
+
+      it('returns flash error for non-existent delivery boy', async () => {
+        const togDb = createTestDb();
+        const togApp = createApp(togDb, 'admin123');
+
+        const loginRes = await postForm(togApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await postForm(togApp, '/admin/delivery-boys/999/toggle-status', {}, cookie);
+
+        assert.strictEqual(res.status, 302);
+
+        togDb.close();
+      });
+    });
   });
 });
