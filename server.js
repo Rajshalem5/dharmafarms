@@ -24,6 +24,8 @@ const { initializeDatabase, getDb, getAdminPasswordHash } = require('./db');
 const { setupAdminRoutes } = require('./routes/admin');
 const { setupTelegramBot } = require('./routes/telegram');
 const { dispatchExistsForToday, generateDispatch } = require('./services/dispatch');
+const { performCompleteBackupCycle } = require('./services/backup');
+const cron = require('node-cron');
 
 // ─── Env validation ─────────────────────────────────────────────────
 
@@ -172,13 +174,50 @@ function startServer() {
     console.log('[Boot] Today\'s dispatch already exists, skipping');
   }
 
-  // 6. Start listening
+  // 6. Boot-time database backup (once per day, idempotent)
+  try {
+    const dbPath = path.join(__dirname, 'data', 'dharma-farms.db');
+    const backupDir = path.join(__dirname, 'backup');
+    const backupResult = performCompleteBackupCycle({ dbPath, backupDir, maxBackups: 30 });
+    if (backupResult.backedUp) {
+      const datePart = new Date().toISOString().slice(0, 10);
+      console.log('[Boot] Database backed up to backup/dharma-farms-' + datePart + '.db');
+    } else {
+      console.log('[Boot] Database backup already exists for today, skipping');
+    }
+  } catch (err) {
+    console.error('[Boot] Warning: Backup failed —', err.message);
+  }
+
+  // 7. Schedule 3 AM daily backup (fallback if server stays up across midnight)
+  try {
+    cron.schedule('0 3 * * *', () => {
+      console.log('[Cron] Running scheduled 3 AM backup...');
+      try {
+        const result = performCompleteBackupCycle({
+          dbPath: path.join(__dirname, 'data', 'dharma-farms.db'),
+          backupDir: path.join(__dirname, 'backup'),
+          maxBackups: 30,
+        });
+        if (result.backedUp) {
+          console.log('[Cron] Database backed up, cleaned up ' + result.deleted + ' old backups');
+        }
+      } catch (err) {
+        console.error('[Cron] Warning: Backup cycle failed —', err.message);
+      }
+    });
+    console.log('[Cron] Scheduled 3 AM daily backup');
+  } catch (err) {
+    console.error('[Cron] Warning: Could not schedule backup —', err.message);
+  }
+
+  // 8. Start listening
   const PORT = process.env.PORT || 3000;
   const server = app.listen(PORT, () => {
     console.log(`[Server] Dharma Farms listening on port ${PORT}`);
   });
 
-  // 7. Graceful shutdown (SIGINT = Ctrl+C)
+  // 9. Graceful shutdown (SIGINT = Ctrl+C)
   process.on('SIGINT', () => {
     console.log('\n[Server] Shutting down gracefully...');
     bot.stopPolling();
