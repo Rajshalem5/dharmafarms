@@ -131,6 +131,28 @@ function initializeDatabase() {
     ).run(1, 'v1_create_core_tables');
   }
 
+  // --- Migration v2: Payments table ---
+  if (currentVersion < 2) {
+    db.exec(`
+      CREATE TABLE payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_id INTEGER NOT NULL REFERENCES customers(id),
+        amount INTEGER NOT NULL,
+        mode VARCHAR(20) NOT NULL,
+        payment_date DATE NOT NULL,
+        notes TEXT,
+        recorded_by VARCHAR(100),
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE INDEX idx_payments_customer ON payments(customer_id);
+    `);
+
+    db.prepare(
+      'INSERT INTO _migrations (version, name) VALUES (?, ?)'
+    ).run(2, 'v2_create_payments_table');
+  }
+
   // --- Seed delivery boys ---
   const seedBoy = db.prepare(
     'INSERT OR IGNORE INTO delivery_boys (id, name, phone, region) VALUES (?, ?, ?, ?)'
