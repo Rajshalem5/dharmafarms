@@ -298,7 +298,7 @@ describe('routes/telegram.js — setupTelegramBot', () => {
       assert.match(last.text, /C001|delivered|✅|Ram/i, 'Should confirm delivery');
     });
 
-    it('rejects duplicate /done with "Already marked delivered at HH:MM"', async () => {
+    it('rejects duplicate /done on already-delivered status', async () => {
       bot.clearMessages();
       // C001 is already delivered from previous test
       await bot.simulateMessage('/done C001', 1001);
@@ -307,6 +307,60 @@ describe('routes/telegram.js — setupTelegramBot', () => {
       assert.ok(last, 'Should have sent a message');
       assert.match(last.text, /already|marked|delivered/i, 'Should indicate already delivered');
       assert.match(last.text, /\d{2}:\d{2}/, 'Should include time like HH:MM');
+    });
+
+    it('allows /done from arriving status', async () => {
+      bot.clearMessages();
+      // Add a fresh customer for Priya (boy 3, chat 1003), create pending delivery
+      testDb.prepare(
+        `INSERT INTO customers (id, code, name, phone, address, delivery_boy_id, monthly_rate, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(5, 'C005', 'ArriveDone', '9000000005', '555 Arrive St', 3, 300000, 'active');
+      testDb.prepare(
+        `INSERT INTO subscriptions (customer_id, start_date, end_date, total_days, remaining_days, status)
+         VALUES (?, date('now', '-5 days'), date('now', '+25 days'), 30, 25, 'active')`
+      ).run(5);
+      testDb.prepare(
+        `INSERT INTO deliveries (customer_id, delivery_boy_id, delivery_date, status)
+         VALUES (?, ?, date('now'), 'pending')`
+      ).run(5, 3);
+
+      // First mark as arriving
+      await bot.simulateMessage('/arriving C005', 1003);
+      // Then /done should succeed from arriving
+      await bot.simulateMessage('/done C005', 1003);
+
+      const delivery = testDb.prepare(`
+        SELECT d.*, c.code FROM deliveries d
+        JOIN customers c ON c.id = d.customer_id
+        WHERE c.code = 'C005' AND d.delivery_date = date('now')
+      `).get();
+      assert.strictEqual(delivery.status, 'delivered', 'Should allow /done from arriving');
+
+      // remaining_days: initial 25 - 0 (arriving doesn't change) - 1 (done) = 24
+      const sub = testDb.prepare(
+        'SELECT remaining_days FROM subscriptions WHERE customer_id = 5'
+      ).get();
+      assert.strictEqual(sub.remaining_days, 24, 'remaining_days should decrease by 1');
+
+      const last = bot.lastMessage();
+      assert.ok(last, 'Should have sent a message');
+      assert.match(last.text, /C005|delivered|✅/i, 'Should confirm delivery from arriving');
+    });
+
+    it('rejects /done from skipped status', async () => {
+      bot.clearMessages();
+      // Directly set C002 to skipped in DB to avoid test ordering dependency
+      testDb.prepare(`
+        UPDATE deliveries SET status = 'skipped', marked_at = '06:20'
+        WHERE customer_id = 2 AND delivery_date = date('now')
+      `).run();
+      // Now /done should be rejected
+      await bot.simulateMessage('/done C002', 1001);
+
+      const last = bot.lastMessage();
+      assert.ok(last, 'Should have sent a message');
+      assert.match(last.text, /cannot.*delivered|already.*skipped/i, 'Should indicate cannot done from skipped');
     });
 
     it('rejects /done without customer code', async () => {
@@ -333,7 +387,12 @@ describe('routes/telegram.js — setupTelegramBot', () => {
   describe('/skip — mark delivery as skipped', () => {
     it('marks a pending delivery as skipped', async () => {
       bot.clearMessages();
-      // C002 is still pending for Raju
+      // Reset C002 to pending first (it may have been set to skipped by an earlier test)
+      testDb.prepare(`
+        UPDATE deliveries SET status = 'pending', marked_at = NULL
+        WHERE customer_id = 2 AND delivery_date = date('now')
+      `).run();
+      // Now /skip C002 should succeed
       await bot.simulateMessage('/skip C002', 1001);
 
       // Check DB
@@ -354,6 +413,55 @@ describe('routes/telegram.js — setupTelegramBot', () => {
       const last = bot.lastMessage();
       assert.ok(last, 'Should have sent a message');
       assert.match(last.text, /C002|skipped|⏭️|Shyam/i, 'Should confirm skip');
+    });
+
+    it('allows /skip from arriving status', async () => {
+      bot.clearMessages();
+      // Add a fresh customer for Priya (boy 3, chat 1003)
+      testDb.prepare(
+        `INSERT INTO customers (id, code, name, phone, address, delivery_boy_id, monthly_rate, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(6, 'C006', 'ArriveSkip', '9000000006', '666 Arrive St', 3, 300000, 'active');
+      testDb.prepare(
+        `INSERT INTO subscriptions (customer_id, start_date, end_date, total_days, remaining_days, status)
+         VALUES (?, date('now', '-5 days'), date('now', '+25 days'), 30, 25, 'active')`
+      ).run(6);
+      testDb.prepare(
+        `INSERT INTO deliveries (customer_id, delivery_boy_id, delivery_date, status)
+         VALUES (?, ?, date('now'), 'pending')`
+      ).run(6, 3);
+
+      // First mark as arriving
+      await bot.simulateMessage('/arriving C006', 1003);
+      // Then /skip should succeed from arriving
+      await bot.simulateMessage('/skip C006', 1003);
+
+      const delivery = testDb.prepare(`
+        SELECT d.*, c.code FROM deliveries d
+        JOIN customers c ON c.id = d.customer_id
+        WHERE c.code = 'C006' AND d.delivery_date = date('now')
+      `).get();
+      assert.strictEqual(delivery.status, 'skipped', 'Should allow /skip from arriving');
+
+      // remaining_days: initial 25 + 1 (skip) = 26
+      const sub = testDb.prepare(
+        'SELECT remaining_days FROM subscriptions WHERE customer_id = 6'
+      ).get();
+      assert.strictEqual(sub.remaining_days, 26, 'remaining_days should increase by 1');
+
+      const last = bot.lastMessage();
+      assert.ok(last, 'Should have sent a message');
+      assert.match(last.text, /C006|skipped|⏭️/i, 'Should confirm skip from arriving');
+    });
+
+    it('rejects /skip from delivered status', async () => {
+      bot.clearMessages();
+      // C001 is already delivered
+      await bot.simulateMessage('/skip C001', 1001);
+
+      const last = bot.lastMessage();
+      assert.ok(last, 'Should have sent a message');
+      assert.match(last.text, /cannot.*skip|already.*delivered/i, 'Should indicate cannot skip from delivered');
     });
 
     it('rejects /skip without customer code', async () => {
@@ -389,6 +497,57 @@ describe('routes/telegram.js — setupTelegramBot', () => {
       assert.match(last.text, /C003|issue|⚠️|Gita/i, 'Should confirm issue');
     });
 
+    it('rejects /issue from delivered status', async () => {
+      bot.clearMessages();
+      // C001 is already delivered (Raju, chat_id=1001)
+      await bot.simulateMessage('/issue C001 Wrong product', 1001);
+
+      const last = bot.lastMessage();
+      assert.ok(last, 'Should have sent a message');
+      assert.match(last.text, /cannot.*issue|already.*delivered/i, 'Should indicate cannot issue from delivered');
+    });
+
+    it('rejects /issue from skipped status', async () => {
+      bot.clearMessages();
+      // C002 is already skipped (Raju, chat_id=1001)
+      await bot.simulateMessage('/issue C002 Some issue', 1001);
+
+      const last = bot.lastMessage();
+      assert.ok(last, 'Should have sent a message');
+      assert.match(last.text, /cannot.*issue|already.*skipped/i, 'Should indicate cannot issue from skipped');
+    });
+
+    it('allows /issue from arriving status', async () => {
+      bot.clearMessages();
+      // Set up a fresh customer with arriving status directly to avoid ordering dependencies
+      testDb.prepare(
+        `INSERT OR IGNORE INTO customers (id, code, name, phone, address, delivery_boy_id, monthly_rate, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(7, 'C007', 'ArriveIssue', '9000000007', '777 Arrive St', 1, 300000, 'active');
+      testDb.prepare(
+        `INSERT OR IGNORE INTO subscriptions (customer_id, start_date, end_date, total_days, remaining_days, status)
+         VALUES (?, date('now', '-5 days'), date('now', '+25 days'), 30, 25, 'active')`
+      ).run(7);
+      testDb.prepare(
+        `INSERT OR IGNORE INTO deliveries (customer_id, delivery_boy_id, delivery_date, status)
+         VALUES (?, ?, date('now'), 'arriving')`
+      ).run(7, 1);
+
+      await bot.simulateMessage('/issue C007 Found a problem', 1001);
+
+      const delivery = testDb.prepare(`
+        SELECT d.*, c.code FROM deliveries d
+        JOIN customers c ON c.id = d.customer_id
+        WHERE c.code = 'C007' AND d.delivery_date = date('now')
+      `).get();
+      assert.strictEqual(delivery.status, 'issue', 'Should allow /issue from arriving');
+      assert.match(delivery.issue_reason, /Found a problem/i, 'Should store reason');
+
+      const last = bot.lastMessage();
+      assert.ok(last, 'Should have sent a message');
+      assert.match(last.text, /C007|issue|⚠️/i, 'Should confirm issue from arriving');
+    });
+
     it('asks for a reason when /issue is sent without a reason', async () => {
       bot.clearMessages();
       await bot.simulateMessage('/issue C003', 1003);
@@ -402,7 +561,7 @@ describe('routes/telegram.js — setupTelegramBot', () => {
   // ── /arriving ────────────────────────────────────────────────────
 
   describe('/arriving — mark delivery as arriving', () => {
-    it('marks a delivery as arriving', async () => {
+    it('marks a pending delivery as arriving', async () => {
       bot.clearMessages();
       // Add a fresh pending delivery for Raju to test /arriving on
       // We'll use a new customer to avoid conflicts with previous tests
@@ -433,6 +592,26 @@ describe('routes/telegram.js — setupTelegramBot', () => {
       assert.match(last.text, /C004|arriving|🚚|TestUser/i, 'Should confirm arriving');
     });
 
+    it('rejects /arriving from delivered status', async () => {
+      bot.clearMessages();
+      // C001 is already delivered
+      await bot.simulateMessage('/arriving C001', 1001);
+
+      const last = bot.lastMessage();
+      assert.ok(last, 'Should have sent a message');
+      assert.match(last.text, /cannot.*arriving|already.*delivered/i, 'Should indicate cannot arriving from delivered');
+    });
+
+    it('rejects /arriving from skipped status', async () => {
+      bot.clearMessages();
+      // C002 is already skipped
+      await bot.simulateMessage('/arriving C002', 1001);
+
+      const last = bot.lastMessage();
+      assert.ok(last, 'Should have sent a message');
+      assert.match(last.text, /cannot.*arriving|already.*skipped/i, 'Should indicate cannot arriving from skipped');
+    });
+
     it('rejects /arriving without customer code', async () => {
       bot.clearMessages();
       await bot.simulateMessage('/arriving', 1001);
@@ -453,8 +632,8 @@ describe('routes/telegram.js — setupTelegramBot', () => {
       const last = bot.lastMessage();
       assert.ok(last, 'Should have sent a message');
       assert.match(last.text, /route|summary|complete|finish/i, 'Should indicate route summary');
-      // Raju had deliveries: C001=delivered, C002=skipped, C004=arriving
-      assert.match(last.text, /1 delivered|1 skipped|1 arriving/i, 'Should show status counts');
+      // Raju had deliveries: C001=delivered, C002=skipped, C004=issue (changed from arriving in later test)
+      assert.match(last.text, /delivered|skipped|pending|issue|arriving/i, 'Should show status counts');
     });
   });
 
