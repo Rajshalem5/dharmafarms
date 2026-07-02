@@ -97,9 +97,11 @@ describe('server.js — createApp', () => {
       const savedBot = process.env.BOT_TOKEN;
       const savedSession = process.env.SESSION_SECRET;
       const savedAdmin = process.env.ADMIN_PASSWORD;
+      const savedAdminChat = process.env.ADMIN_TELEGRAM_CHAT_ID;
       delete process.env.BOT_TOKEN;
       delete process.env.SESSION_SECRET;
       delete process.env.ADMIN_PASSWORD;
+      delete process.env.ADMIN_TELEGRAM_CHAT_ID;
 
       try {
         const { validateEnv } = require('../server');
@@ -107,6 +109,38 @@ describe('server.js — createApp', () => {
         assert.strictEqual(exitCode, 1, 'Should have called process.exit(1)');
       } finally {
         process.exit = origExit;
+        process.env.BOT_TOKEN = savedBot;
+        process.env.SESSION_SECRET = savedSession;
+        process.env.ADMIN_PASSWORD = savedAdmin;
+        process.env.ADMIN_TELEGRAM_CHAT_ID = savedAdminChat;
+        if (hasEnv) fs.renameSync(envPath + '.bak', envPath);
+      }
+    });
+
+    it('exits when ADMIN_TELEGRAM_CHAT_ID is missing', () => {
+      const origExit = process.exit;
+      let exitCode = null;
+      process.exit = (code) => { exitCode = code; };
+
+      const fs = require('fs');
+      const envPath = require('path').join(__dirname, '..', '.env');
+      const hasEnv = fs.existsSync(envPath);
+      if (hasEnv) fs.renameSync(envPath, envPath + '.bak');
+
+      // Preserve other env vars, clear only ADMIN_TELEGRAM_CHAT_ID
+      const savedAdminChat = process.env.ADMIN_TELEGRAM_CHAT_ID;
+      const savedBot = process.env.BOT_TOKEN;
+      const savedSession = process.env.SESSION_SECRET;
+      const savedAdmin = process.env.ADMIN_PASSWORD;
+      delete process.env.ADMIN_TELEGRAM_CHAT_ID;
+
+      try {
+        const { validateEnv } = require('../server');
+        validateEnv();
+        assert.strictEqual(exitCode, 1, 'Should have called process.exit(1) for missing ADMIN_TELEGRAM_CHAT_ID');
+      } finally {
+        process.exit = origExit;
+        process.env.ADMIN_TELEGRAM_CHAT_ID = savedAdminChat;
         process.env.BOT_TOKEN = savedBot;
         process.env.SESSION_SECRET = savedSession;
         process.env.ADMIN_PASSWORD = savedAdmin;
