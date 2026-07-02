@@ -1147,6 +1147,33 @@ describe('routes/admin.js — setupAdminRoutes', () => {
         payDb.close();
       });
 
+      it('renders payment form with radio buttons for mode', async () => {
+        const payDb = createTestDb();
+        seedDeliveryBoys(payDb);
+        seedCustomers(payDb);
+        const payApp = createApp(payDb, 'admin123');
+
+        const loginRes = await postForm(payApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(payApp, 'GET', '/admin/payments', { cookie });
+
+        // Should have radio buttons for payment modes
+        assert.match(res.body, /type="radio".*value="cash"/);
+        assert.match(res.body, /type="radio".*value="upi"/);
+        assert.match(res.body, /type="radio".*value="bank_transfer"/);
+
+        // Should have customer dropdown, amount field, date picker, notes textarea
+        assert.match(res.body, /customer_id/);
+        assert.match(res.body, /type="number".*name="amount"/);
+        assert.match(res.body, /type="date".*name="payment_date"/);
+        assert.match(res.body, /textarea.*name="notes"/);
+
+        payDb.close();
+      });
+
       it('redirects to login when not authenticated', async () => {
         const res = await request(app, 'GET', '/admin/payments', {
           followRedirect: false,
