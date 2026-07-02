@@ -1,0 +1,148 @@
+<!-- views/admin/payments.ejs — Payment recording form and per-customer ledger -->
+<div class="page-header">
+  <h1>Payments</h1>
+</div>
+
+<% if (flash) { %>
+  <div class="flash <%= flash.type %>">
+    <span><%= flash.message %></span>
+  </div>
+<% } %>
+
+<!-- Payment recording form -->
+<div class="card">
+  <h2 class="text-lg font-semibold text-gray-800 mb-4">Record Payment</h2>
+  <form action="/admin/payments" method="POST">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div>
+        <label for="customer_id" class="label">Customer *</label>
+        <select name="customer_id" id="customer_id" required class="input">
+          <option value="">-- Select Customer --</option>
+          <% customers.forEach(function(c) { %>
+            <option value="<%= c.id %>"><%= c.code %> — <%= c.name %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div>
+        <label for="amount" class="label">Amount (Rs) *</label>
+        <input type="number" name="amount" id="amount" min="0.01" step="0.01" required class="input" placeholder="0.00">
+      </div>
+      <div>
+        <label for="mode" class="label">Mode *</label>
+        <select name="mode" id="mode" required class="input">
+          <option value="">-- Select Mode --</option>
+          <% paymentModes.forEach(function(m) { %>
+            <option value="<%= m %>"><%= m.replace('_', ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); }) %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div>
+        <label for="payment_date" class="label">Payment Date *</label>
+        <input type="date" name="payment_date" id="payment_date" required class="input"
+               value="<%= new Date().toISOString().slice(0, 10) %>">
+      </div>
+      <div>
+        <label for="notes" class="label">Notes</label>
+        <input type="text" name="notes" id="notes" class="input" placeholder="Optional notes">
+      </div>
+      <div class="flex items-end">
+        <button type="submit" class="btn btn-primary w-full">Record Payment</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<!-- Customer ledger filter -->
+<div class="card mt-6">
+  <h2 class="text-lg font-semibold text-gray-800 mb-4">View Customer Ledger</h2>
+  <form action="/admin/payments" method="GET" class="flex items-end gap-4">
+    <div class="flex-1">
+      <label for="filter_customer_id" class="label">Customer</label>
+      <select name="customer_id" id="filter_customer_id" class="input">
+        <option value="">-- Select Customer --</option>
+        <% customers.forEach(function(c) { %>
+          <option value="<%= c.id %>"
+            <%= (ledger && ledger.customerCode === c.code) ? 'selected' : '' %>>
+            <%= c.code %> — <%= c.name %>
+          </option>
+        <% }); %>
+      </select>
+    </div>
+    <button type="submit" class="btn btn-secondary">View Ledger</button>
+  </form>
+</div>
+
+<!-- Ledger display -->
+<% if (ledger) { %>
+  <div class="card mt-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold text-gray-800">
+        Ledger: <%= ledger.customerCode %> — <%= ledger.customerName %>
+      </h2>
+    </div>
+
+    <!-- Balance summary -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div class="stat-card">
+        <div class="stat-value"><%= ledger.balance.paidDays %></div>
+        <div class="stat-label">Paid Days</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value"><%= ledger.balance.consumedDays %></div>
+        <div class="stat-label">Consumed Days</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value <%= ledger.balance.balanceDays < 0 ? 'text-red-600' : 'text-green-600' %>">
+          <%= ledger.balance.balanceDays %>
+        </div>
+        <div class="stat-label">Balance Days</div>
+      </div>
+      <div class="stat-card">
+        <% if (ledger.balance.isOverdue) { %>
+          <span class="badge badge-danger">Overdue</span>
+        <% } else { %>
+          <span class="badge badge-success">Up to Date</span>
+        <% } %>
+        <div class="stat-label">Status</div>
+      </div>
+    </div>
+
+    <!-- Ledger table -->
+    <% if (ledger.rows.length === 0) { %>
+      <p class="text-gray-500 text-center py-8">No payments recorded for this customer.</p>
+    <% } else { %>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Amount (Rs)</th>
+              <th>Mode</th>
+              <th>Notes</th>
+              <th>Recorded By</th>
+              <th>Running Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% ledger.rows.forEach(function(row) { %>
+              <tr>
+                <td><%= row.payment_date %></td>
+                <td><%= (+row.amount_rupees).toLocaleString('en-IN', { minimumFractionDigits: 2 }) %></td>
+                <td><%= row.mode.replace('_', ' ') %></td>
+                <td><%= row.notes || '-' %></td>
+                <td><%= row.recorded_by || '-' %></td>
+                <td class="font-medium">Rs <%= (+row.runningTotalRupees).toLocaleString('en-IN', { minimumFractionDigits: 2 }) %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+          <tfoot>
+            <tr class="font-bold">
+              <td colspan="5" class="text-right">Total:</td>
+              <td>Rs <%= (+ledger.rows[ledger.rows.length - 1].runningTotalRupees).toLocaleString('en-IN', { minimumFractionDigits: 2 }) %></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    <% } %>
+  </div>
+<% } %>

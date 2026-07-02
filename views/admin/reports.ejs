@@ -1,0 +1,98 @@
+<!-- views/admin/reports.ejs — Monthly reports with collection, delivery stats, overdue accounts, CSV export -->
+<div class="page-header">
+  <h1>Reports</h1>
+  <form action="/admin/reports" method="GET" class="ml-4">
+    <input type="month" name="month" value="<%= reportMonth %>"
+           onchange="this.form.submit()"
+           class="input w-auto">
+  </form>
+</div>
+
+<% if (flash) { %>
+  <div class="flash <%= flash.type %>">
+    <span><%= flash.message %></span>
+  </div>
+<% } %>
+
+<!-- Monthly Collection -->
+<div class="card border-l-4 border-l-green-500 mt-6">
+  <div class="stat-card-inline">
+    <div class="stat-value text-green-700">Rs <%= (+monthlyCollection.totalRupees).toLocaleString('en-IN', { minimumFractionDigits: 2 }) %></div>
+    <div class="stat-label">Total Collected</div>
+    <div class="text-sm text-gray-500 mt-1"><%= monthlyCollection.paymentCount %> payment(s) recorded</div>
+  </div>
+</div>
+
+<!-- Delivery Success Rate -->
+<div class="card border-l-4 border-l-blue-500 mt-6">
+  <div class="stat-card-inline">
+    <% var successNum = parseFloat(deliveryStats.successRate); %>
+    <% var successColor = successNum >= 90 ? 'text-green-600' : (successNum >= 75 ? 'text-amber-600' : 'text-red-600'); %>
+    <div class="stat-value <%= successColor %>"><%= deliveryStats.successRate %>%</div>
+    <div class="stat-label">Delivery Success Rate</div>
+    <div class="text-sm text-gray-500 mt-1">
+      <%= deliveryStats.delivered %> delivered out of <%= deliveryStats.total %> total
+      <% if (deliveryStats.total > 0) { %>
+        (<%= deliveryStats.skipped %> skipped, <%= deliveryStats.issue %> issues, <%= deliveryStats.pending %> pending)
+      <% } %>
+    </div>
+  </div>
+</div>
+
+<!-- Overdue Accounts -->
+<div class="card border-l-4 border-l-red-500 mt-6">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-lg font-semibold text-gray-800">Overdue Accounts</h2>
+    <span class="badge <%= overdueAccounts.length > 0 ? 'badge-danger' : 'badge-success' %>">
+      <%= overdueAccounts.length %>
+    </span>
+  </div>
+
+  <% if (overdueAccounts.length === 0) { %>
+    <p class="text-gray-500 text-center py-6">No overdue accounts. All customers are up to date.</p>
+  <% } else { %>
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Code</th>
+            <th>Name</th>
+            <th>Phone</th>
+            <th>Balance (Days)</th>
+            <th>Rate (Rs)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% overdueAccounts.forEach(function(c) { %>
+            <tr>
+              <td><%= c.code %></td>
+              <td><%= c.name %></td>
+              <td><%= c.phone %></td>
+              <td class="text-red-600 font-medium"><%= c.balanceDays %></td>
+              <td><%= (c.monthly_rate / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 }) %></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+
+<!-- CSV Export -->
+<div class="card mt-6">
+  <h2 class="text-lg font-semibold text-gray-800 mb-4">Export Data</h2>
+  <div class="flex flex-wrap gap-3">
+    <a href="/admin/reports/export/payments" class="btn btn-outline">
+      <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+      Export Payments CSV
+    </a>
+    <a href="/admin/reports/export/customers" class="btn btn-outline">
+      <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+      Export Customers CSV
+    </a>
+    <a href="/admin/reports/export/deliveries" class="btn btn-outline">
+      <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+      Export Deliveries CSV
+    </a>
+  </div>
+</div>

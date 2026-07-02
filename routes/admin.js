@@ -10,6 +10,7 @@ const path = require('path');
 const ejs = require('ejs');
 const bcrypt = require('bcryptjs');
 const { generateDispatch, regenerateDispatch, dispatchExistsForToday } = require('../services/dispatch');
+const { getBalance, getPaymentLedger, recordPayment, getPaymentModes } = require('../services/subscription');
 
 const PHONE_RE = /^\d{10,15}$/;
 
@@ -478,6 +479,283 @@ function setupAdminRoutes(app, db) {
 
     res.redirect('/admin/delivery-boys');
   });
+
+  // ── Payments page ─────────────────────────────────────────────────
+
+  app.get('/admin/payments', requireAuth, (req, res) => {
+    const customers = db.prepare(`
+      SELECT c.id, c.code, c.name, c.monthly_rate, c.status, db.name AS delivery_boy_name
+      FROM customers c
+      LEFT JOIN delivery_boys db ON db.id = c.delivery_boy_id
+      ORDER BY c.code ASC
+    `).all();
+
+    let ledger = null;
+    const customerId = parseInt(req.query.customer_id, 10);
+
+    if (customerId) {
+      const customer = db.prepare(
+        'SELECT id, code, name FROM customers WHERE id = ?'
+      ).get(customerId);
+
+      if (customer) {
+        const ledgerRows = getPaymentLedger(db, customerId);
+        const balance = getBalance(db, customerId);
+        ledger = {
+          rows: ledgerRows,
+          customerName: customer.name,
+          customerCode: customer.code,
+          balance,
+        };
+      }
+    }
+
+    const flash = req.session.flash || null;
+    req.session.flash = null;
+
+    renderView(res, 'admin/payments', {
+      customers: customers || [],
+      paymentModes: getPaymentModes(),
+      ledger,
+      flash,
+      activePage: 'payments',
+    });
+  });
+
+  // ── Record payment ────────────────────────────────────────────────
+
+  app.post('/admin/payments', requireAuth, (req, res) => {
+    const { customer_id, amount, mode, payment_date, notes } = req.body;
+
+    if (!customer_id) {
+      req.session.flash = { type: 'error', message: 'Please select a customer.' };
+      return res.redirect('/admin/payments');
+    }
+
+    if (!amount || parseFloat(amount) <= 0) {
+      req.session.flash = { type: 'error', message: 'Amount must be a positive number.' };
+      return res.redirect('/admin/payments');
+    }
+
+    if (!['cash', 'upi', 'bank_transfer'].includes(mode)) {
+      req.session.flash = { type: 'error', message: 'Invalid payment mode.' };
+      return res.redirect('/admin/payments');
+    }
+
+    // Verify customer exists
+    const customer = db.prepare('SELECT id FROM customers WHERE id = ?').get(customer_id);
+    if (!customer) {
+      req.session.flash = { type: 'error', message: 'Customer not found.' };
+      return res.redirect('/admin/payments');
+    }
+
+    const amountInPaise = Math.round(parseFloat(amount) * 100);
+
+    try {
+      recordPayment(db, {
+        customerId: parseInt(customer_id, 10),
+        amount: amountInPaise,
+        mode,
+        paymentDate: payment_date,
+        notes: notes || '',
+        recordedBy: 'Admin',
+      });
+
+      req.session.flash = { type: 'success', message: 'Payment recorded successfully.' };
+    } catch (err) {
+      req.session.flash = { type: 'error', message: err.message };
+    }
+
+    res.redirect('/admin/payments');
+  });
+
+  // ── Payment ledger JSON ───────────────────────────────────────────
+
+  app.get('/admin/payments/ledger/:id', requireAuth, (req, res) => {
+    const customerId = parseInt(req.params.id, 10);
+
+    const customer = db.prepare(
+      'SELECT id, code, name FROM customers WHERE id = ?'
+    ).get(customerId);
+
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    const ledger = getPaymentLedger(db, customerId);
+    const balance = getBalance(db, customerId);
+
+    res.json({ ledger, balance, customer });
+  });
+
+  // ── Reports page ──────────────────────────────────────────────────
+
+  app.get('/admin/reports', requireAuth, (req, res) => {
+    const today = new Date();
+    const reportMonth = req.query.month || today.toISOString().slice(0, 7);
+    const monthStart = reportMonth + '-01';
+
+    // Calculate month end
+    const year = parseInt(reportMonth.slice(0, 4), 10);
+    const month = parseInt(reportMonth.slice(5, 7), 10);
+    const lastDay = new Date(year, month, 0).getDate();
+    const monthEnd = reportMonth + '-' + String(lastDay).padStart(2, '0');
+
+    // Monthly collection
+    const collectionRow = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) AS total_paise, COUNT(*) AS payment_count
+      FROM payments
+      WHERE payment_date >= ? AND payment_date <= ?
+    `).get(monthStart, monthEnd);
+
+    const monthlyCollection = {
+      totalPaise: collectionRow.total_paise,
+      totalRupees: (collectionRow.total_paise / 100).toFixed(2),
+      paymentCount: collectionRow.payment_count,
+    };
+
+    // Delivery stats for the month
+    const deliveryRow = db.prepare(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) AS delivered,
+        SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END) AS skipped,
+        SUM(CASE WHEN status = 'issue' THEN 1 ELSE 0 END) AS issue,
+        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending
+      FROM deliveries
+      WHERE delivery_date >= ? AND delivery_date <= ?
+    `).get(monthStart, monthEnd);
+
+    const total = deliveryRow.total || 0;
+    const delivered = deliveryRow.delivered || 0;
+    const deliveryStats = {
+      total,
+      delivered,
+      skipped: deliveryRow.skipped || 0,
+      issue: deliveryRow.issue || 0,
+      pending: deliveryRow.pending || 0,
+      successRate: total > 0 ? (delivered / total * 100).toFixed(1) : '0.0',
+    };
+
+    // Overdue accounts
+    const activeCustomers = db.prepare(`
+      SELECT c.id, c.code, c.name, c.phone, c.monthly_rate
+      FROM customers c
+      INNER JOIN subscriptions s ON s.customer_id = c.id
+      WHERE c.status = 'active' AND s.status = 'active'
+      GROUP BY c.id
+      ORDER BY c.code ASC
+    `).all();
+
+    const overdueAccounts = [];
+    for (const c of activeCustomers) {
+      const balance = getBalance(db, c.id);
+      if (balance.isOverdue) {
+        overdueAccounts.push({
+          id: c.id,
+          code: c.code,
+          name: c.name,
+          phone: c.phone,
+          balanceDays: balance.balanceDays,
+          monthly_rate: c.monthly_rate,
+        });
+      }
+    }
+
+    const flash = req.session.flash || null;
+    req.session.flash = null;
+
+    renderView(res, 'admin/reports', {
+      monthlyCollection,
+      deliveryStats,
+      overdueAccounts,
+      reportMonth,
+      flash,
+      activePage: 'reports',
+    });
+  });
+
+  // ── CSV Export ────────────────────────────────────────────────────
+
+  app.get('/admin/reports/export/:type', requireAuth, (req, res) => {
+    const type = req.params.type;
+
+    const csvExports = {
+      payments: () => {
+        const rows = db.prepare(`
+          SELECT p.id, c.code AS customer_code, c.name AS customer_name,
+                 p.amount, p.mode, p.payment_date, p.notes, p.recorded_by, p.created_at
+          FROM payments p
+          JOIN customers c ON c.id = p.customer_id
+          ORDER BY p.payment_date DESC, p.created_at DESC
+        `).all();
+
+        const header = 'id,customer_code,customer_name,amount_paise,mode,payment_date,notes,recorded_by,created_at';
+        const csv = [header, ...rows.map(r =>
+          `${r.id},${escapeCsv(r.customer_code)},${escapeCsv(r.customer_name)},${r.amount},${r.mode},${r.payment_date},${escapeCsv(r.notes || '')},${escapeCsv(r.recorded_by || '')},${r.created_at}`
+        )].join('\n');
+        return { csv, filename: 'payments.csv' };
+      },
+
+      customers: () => {
+        const rows = db.prepare(`
+          SELECT c.id, c.code, c.name, c.phone, c.address, c.monthly_rate, c.status,
+                 db.name AS delivery_boy_name, c.created_at
+          FROM customers c
+          LEFT JOIN delivery_boys db ON db.id = c.delivery_boy_id
+          ORDER BY c.code ASC
+        `).all();
+
+        const header = 'id,code,name,phone,address,monthly_rate_paise,status,delivery_boy,created_at';
+        const csv = [header, ...rows.map(r =>
+          `${r.id},${escapeCsv(r.code)},${escapeCsv(r.name)},${escapeCsv(r.phone)},${escapeCsv(r.address)},${r.monthly_rate},${r.status},${escapeCsv(r.delivery_boy_name || '')},${r.created_at}`
+        )].join('\n');
+        return { csv, filename: 'customers.csv' };
+      },
+
+      deliveries: () => {
+        const rows = db.prepare(`
+          SELECT d.id, c.code AS customer_code, c.name AS customer_name,
+                 db.name AS delivery_boy_name, d.delivery_date, d.status, d.issue_reason, d.marked_at
+          FROM deliveries d
+          JOIN customers c ON c.id = d.customer_id
+          JOIN delivery_boys db ON db.id = d.delivery_boy_id
+          ORDER BY d.delivery_date DESC, c.code ASC
+        `).all();
+
+        const header = 'id,customer_code,customer_name,delivery_boy,delivery_date,status,issue_reason,marked_at';
+        const csv = [header, ...rows.map(r =>
+          `${r.id},${escapeCsv(r.customer_code)},${escapeCsv(r.customer_name)},${escapeCsv(r.delivery_boy_name)},${r.delivery_date},${r.status},${escapeCsv(r.issue_reason || '')},${r.marked_at || ''}`
+        )].join('\n');
+        return { csv, filename: 'deliveries.csv' };
+      },
+    };
+
+    if (!csvExports[type]) {
+      return res.status(400).json({ error: 'Invalid export type. Use: payments, customers, deliveries' });
+    }
+
+    const { csv, filename } = csvExports[type]();
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csv);
+  });
+}
+
+/**
+ * Escapes a CSV field to prevent injection and handle commas/quotes.
+ * Prefixes = + - @ with single quote to prevent CSV formula injection.
+ */
+function escapeCsv(value) {
+  if (value === null || value === undefined) return '';
+  const str = String(value);
+  if (/^[=+\-@]/.test(str)) {
+    return "'" + str;
+  }
+  if (/,|"|\n/.test(str)) {
+    return '"' + str.replace(/"/g, '""') + '"';
+  }
+  return str;
 }
 
 module.exports = { setupAdminRoutes };
