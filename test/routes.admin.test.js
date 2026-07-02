@@ -743,6 +743,76 @@ describe('routes/admin.js — setupAdminRoutes', () => {
       });
     });
 
+    // ── POST /admin/dispatch/regenerate ─────────────────────────
+
+    describe('POST /admin/dispatch/regenerate', () => {
+      it('regenerates dispatch and returns JSON', async () => {
+        const regDb = createTestDb();
+        seedDeliveryBoys(regDb);
+        seedCustomers(regDb);
+        const regApp = createApp(regDb, 'admin123');
+
+        const loginRes = await postForm(regApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        // First generate dispatch
+        await request(regApp, 'POST', '/admin/dispatch/generate', { cookie });
+
+        // Now regenerate
+        const res = await request(regApp, 'POST', '/admin/dispatch/regenerate', {
+          cookie,
+          headers: { 'Accept': 'application/json' },
+        });
+        assert.strictEqual(res.status, 200);
+
+        const body = JSON.parse(res.body);
+        assert.strictEqual(body.generated, true);
+        assert.strictEqual(body.count, 3);
+
+        // Verify deliveries still exist
+        const count = regDb.prepare(
+          "SELECT COUNT(*) AS c FROM deliveries WHERE delivery_date = date('now')"
+        ).get().c;
+        assert.strictEqual(count, 3);
+
+        regDb.close();
+      });
+
+      it('regenerates even when no dispatch exists yet', async () => {
+        const regDb = createTestDb();
+        seedDeliveryBoys(regDb);
+        seedCustomers(regDb);
+        const regApp = createApp(regDb, 'admin123');
+
+        const loginRes = await postForm(regApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(regApp, 'POST', '/admin/dispatch/regenerate', {
+          cookie,
+          headers: { 'Accept': 'application/json' },
+        });
+        assert.strictEqual(res.status, 200);
+
+        const body = JSON.parse(res.body);
+        assert.strictEqual(body.generated, true);
+        assert.strictEqual(body.count, 3);
+
+        regDb.close();
+      });
+
+      it('requires authentication', async () => {
+        const res = await request(app, 'POST', '/admin/dispatch/regenerate', {
+          followRedirect: false,
+        });
+        assert.strictEqual(res.status, 302);
+        assert.match(res.headers.location, /\/admin\/login/);
+      });
+    });
+
     // ── GET /admin/logout ─────────────────────────────────────────
 
     describe('GET /admin/logout', () => {

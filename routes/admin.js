@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const ejs = require('ejs');
 const bcrypt = require('bcryptjs');
-const { generateDispatch, dispatchExistsForToday } = require('../services/dispatch');
+const { generateDispatch, regenerateDispatch, dispatchExistsForToday } = require('../services/dispatch');
 
 const PHONE_RE = /^\d{10,15}$/;
 
@@ -361,6 +361,13 @@ function setupAdminRoutes(app, db) {
 
   app.post('/admin/dispatch/generate', requireAuth, (req, res) => {
     const result = generateDispatch(db);
+    res.json(result);
+  });
+
+  // ── Regenerate dispatch ──────────────────────────────────────────
+
+  app.post('/admin/dispatch/regenerate', requireAuth, (req, res) => {
+    const result = regenerateDispatch(db);
     res.json(result);
   });
 }

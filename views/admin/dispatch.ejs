@@ -4,6 +4,11 @@
       <h1 class="text-2xl font-bold text-[#1B4332]">Dispatch</h1>
       <p class="text-sm text-gray-500 mt-1"><%= today %></p>
     </div>
+    <% if (hasDispatch) { %>
+      <button onclick="regenerateDispatch(event)" class="bg-red-600 hover:bg-red-700 text-white font-medium py-2.5 px-6 rounded-lg transition-colors duration-150 cursor-pointer text-sm">
+        Regenerate Dispatch
+      </button>
+    <% } %>
   </div>
 
   <% if (flash) { %>
@@ -94,6 +99,29 @@ function generateDispatch(e) {
       btn.textContent = 'Generate Today\'s Dispatch';
       result.className = 'text-sm mt-3 text-red-600';
       result.textContent = 'Error: ' + err.message;
+    });
+}
+
+function regenerateDispatch(e) {
+  if (!confirm('Are you sure you want to regenerate today\'s dispatch? This will delete and recreate all deliveries for today.')) {
+    return;
+  }
+
+  var btn = e.currentTarget;
+  btn.disabled = true;
+  btn.textContent = 'Regenerating...';
+
+  fetch('/admin/dispatch/regenerate', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.generated) {
+        location.reload();
+      }
+    })
+    .catch(function(err) {
+      btn.disabled = false;
+      btn.textContent = 'Regenerate Dispatch';
+      alert('Error: ' + err.message);
     });
 }
 </script>

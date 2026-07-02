@@ -82,8 +82,44 @@ function getTodaysRouteForBoy(db, deliveryBoyId) {
   `).all(deliveryBoyId);
 }
 
+/**
+ * Regenerates today's dispatch: deletes all existing deliveries for today
+ * and re-inserts based on current customer/subscription data.
+ *
+ * Runs inside a transaction so partial failures are impossible.
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @returns {{ generated: boolean, count: number }}
+ */
+function regenerateDispatch(db) {
+  const deleteToday = db.prepare(
+    "DELETE FROM deliveries WHERE delivery_date = date('now')"
+  );
+
+  const insertDelivery = db.prepare(`
+    INSERT INTO deliveries (customer_id, delivery_boy_id, delivery_date, status)
+    SELECT c.id, c.delivery_boy_id, date('now'), 'pending'
+    FROM customers c
+    INNER JOIN subscriptions s ON s.customer_id = c.id
+    WHERE c.status = 'active'
+      AND s.status = 'active'
+      AND (s.paused_until IS NULL OR s.paused_until <= date('now'))
+      AND (s.end_date IS NULL OR s.end_date >= date('now'))
+  `);
+
+  const doRegenerate = db.transaction(() => {
+    deleteToday.run();
+    const info = insertDelivery.run();
+    return info.changes;
+  });
+
+  const count = doRegenerate();
+  return { generated: true, count };
+}
+
 module.exports = {
   dispatchExistsForToday,
   generateDispatch,
+  regenerateDispatch,
   getTodaysRouteForBoy,
 };

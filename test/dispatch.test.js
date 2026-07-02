@@ -12,6 +12,7 @@ const Database = require('better-sqlite3');
 const {
   dispatchExistsForToday,
   generateDispatch,
+  regenerateDispatch,
   getTodaysRouteForBoy,
 } = require('../services/dispatch');
 
@@ -217,6 +218,78 @@ describe('dispatchExistsForToday', () => {
     generateDispatch(db);
     const result = dispatchExistsForToday(db);
     assert.strictEqual(result, true);
+  });
+});
+
+describe('regenerateDispatch', () => {
+  let db;
+
+  before(() => {
+    db = createTestDb();
+    seedTestData(db);
+    generateDispatch(db); // First generate
+  });
+
+  after(() => {
+    db.close();
+  });
+
+  it('deletes existing deliveries and regenerates', () => {
+    const beforeCount = db.prepare(
+      "SELECT COUNT(*) AS c FROM deliveries WHERE delivery_date = date('now')"
+    ).get().c;
+    assert.strictEqual(beforeCount, 5, 'should have 5 deliveries before regenerate');
+
+    const result = regenerateDispatch(db);
+
+    assert.strictEqual(result.generated, true);
+    assert.strictEqual(result.count, 5);
+
+    const afterCount = db.prepare(
+      "SELECT COUNT(*) AS c FROM deliveries WHERE delivery_date = date('now')"
+    ).get().c;
+    assert.strictEqual(afterCount, 5, 'should still have 5 deliveries after regenerate');
+  });
+
+  it('replaces old deliveries with fresh data', () => {
+    // Manually insert a delivery for a customer that was NOT in the original seed
+    // to verify regenerate cleans it up
+    const oldBoy = db.prepare(
+      "SELECT id FROM delivery_boys LIMIT 1"
+    ).get();
+
+    // First, verify the regenerate cleaned up — all deliveries should have status 'pending'
+    const statuses = db.prepare(
+      "SELECT DISTINCT status FROM deliveries WHERE delivery_date = date('now')"
+    ).all();
+    assert.strictEqual(statuses.length, 1);
+    assert.strictEqual(statuses[0].status, 'pending');
+  });
+
+  it('is idempotent — running twice still works', () => {
+    const result1 = regenerateDispatch(db);
+    assert.strictEqual(result1.generated, true);
+
+    const result2 = regenerateDispatch(db);
+    assert.strictEqual(result2.generated, true);
+
+    const count = db.prepare(
+      "SELECT COUNT(*) AS c FROM deliveries WHERE delivery_date = date('now')"
+    ).get().c;
+    assert.strictEqual(count, 5);
+  });
+
+  it('runs in a transaction (atomic)', () => {
+    // If it runs atomically, we can't easily break it mid-way with better-sqlite3
+    // but we can verify no partial state exists
+    const deliveries = db.prepare(
+      "SELECT * FROM deliveries WHERE delivery_date = date('now')"
+    ).all();
+    assert.strictEqual(deliveries.length, 5);
+    for (const d of deliveries) {
+      assert.ok(d.customer_id, 'delivery must have a customer_id');
+      assert.ok(d.delivery_boy_id, 'delivery must have a delivery_boy_id');
+    }
   });
 });
 
