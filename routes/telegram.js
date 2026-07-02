@@ -23,6 +23,19 @@ function isTerminalStatus(status) {
 }
 
 /**
+ * Looks up today's delivery for a customer code assigned to the given delivery boy.
+ * Returns the row or undefined.
+ */
+function lookupDelivery(db, code, boyId) {
+  return db.prepare(`
+    SELECT d.id, d.status, d.marked_at, c.id AS customer_id, c.code, c.name
+    FROM deliveries d
+    JOIN customers c ON c.id = d.customer_id
+    WHERE c.code = ? AND d.delivery_date = date('now') AND c.delivery_boy_id = ?
+  `).get(code, boyId);
+}
+
+/**
  * Registers message handlers on the bot instance.
  * @param {import('node-telegram-bot-api')} bot
  * @param {function} getDb - Function that returns the database instance
@@ -166,12 +179,7 @@ async function handleDone(bot, chatId, db, boy, args) {
     );
   }
 
-  const delivery = db.prepare(`
-    SELECT d.id, d.status, d.marked_at, c.id AS customer_id, c.code, c.name
-    FROM deliveries d
-    JOIN customers c ON c.id = d.customer_id
-    WHERE c.code = ? AND d.delivery_date = date('now') AND c.delivery_boy_id = ?
-  `).get(code, boy.id);
+  const delivery = lookupDelivery(db, code, boy.id);
 
   if (!delivery) {
     return bot.sendMessage(
@@ -226,12 +234,7 @@ async function handleSkip(bot, chatId, db, boy, args) {
     );
   }
 
-  const delivery = db.prepare(`
-    SELECT d.id, d.status, d.marked_at, c.id AS customer_id, c.code, c.name
-    FROM deliveries d
-    JOIN customers c ON c.id = d.customer_id
-    WHERE c.code = ? AND d.delivery_date = date('now') AND c.delivery_boy_id = ?
-  `).get(code, boy.id);
+  const delivery = lookupDelivery(db, code, boy.id);
 
   if (!delivery) {
     return bot.sendMessage(
@@ -295,12 +298,7 @@ async function handleIssue(bot, chatId, db, boy, args) {
     );
   }
 
-  const delivery = db.prepare(`
-    SELECT d.id, d.status, d.marked_at, c.id AS customer_id, c.code, c.name
-    FROM deliveries d
-    JOIN customers c ON c.id = d.customer_id
-    WHERE c.code = ? AND d.delivery_date = date('now') AND c.delivery_boy_id = ?
-  `).get(code, boy.id);
+  const delivery = lookupDelivery(db, code, boy.id);
 
   if (!delivery) {
     return bot.sendMessage(
@@ -343,12 +341,7 @@ async function handleArriving(bot, chatId, db, boy, args) {
     );
   }
 
-  const delivery = db.prepare(`
-    SELECT d.id, d.status, d.marked_at, c.id AS customer_id, c.code, c.name
-    FROM deliveries d
-    JOIN customers c ON c.id = d.customer_id
-    WHERE c.code = ? AND d.delivery_date = date('now') AND c.delivery_boy_id = ?
-  `).get(code, boy.id);
+  const delivery = lookupDelivery(db, code, boy.id);
 
   if (!delivery) {
     return bot.sendMessage(
