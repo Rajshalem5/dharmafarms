@@ -63,6 +63,77 @@ function validateEnv() {
   }
 }
 
+// ─── Cron handler functions (extracted for readability) ────────────────
+
+/**
+ * Handles the 3 AM daily database backup cycle.
+ */
+function handleDailyBackup() {
+  console.log('[Cron] Running scheduled 3 AM backup...');
+  try {
+    const result = performCompleteBackupCycle({
+      dbPath: path.join(__dirname, 'data', 'dharma-farms.db'),
+      backupDir: path.join(__dirname, 'backup'),
+      maxBackups: 30,
+    });
+    if (result.backedUp) {
+      console.log('[Cron] Database backed up, cleaned up ' + result.deleted + ' old backups');
+    }
+  } catch (err) {
+    console.error('[Cron] Warning: Backup cycle failed —', err.message);
+  }
+}
+
+/**
+ * Pushes today's delivery routes to all active delivery boys via Telegram.
+ * Called by the 5:30 AM cron job.
+ * @param {import('better-sqlite3').Database} db
+ * @param {import('node-telegram-bot-api').TelegramBot} bot
+ */
+async function handleRoutePush(db, bot) {
+  console.log('[Cron] Running 5:30 AM route push...');
+  try {
+    const result = await pushRoutesToAllBoys(db, bot);
+    if (result.pushed) {
+      console.log('[Cron] Routes pushed to ' + result.sent + ' delivery boys');
+    } else {
+      console.log('[Cron] Routes already pushed today, skipping');
+    }
+  } catch (err) {
+    console.error('[Cron] Warning: Route push failed —', err.message);
+  }
+}
+
+/**
+ * Sends the end-of-route delivery summary to the admin via Telegram.
+ * Called by the 7:30 AM cron job.
+ * @param {import('better-sqlite3').Database} db
+ * @param {import('node-telegram-bot-api').TelegramBot} bot
+ */
+async function handleAdminSummary(db, bot) {
+  console.log('[Cron] Running 7:30 AM admin summary...');
+  try {
+    const result = await sendDailySummaryToAdmin(db, bot);
+    if (result.sent) {
+      console.log('[Cron] Admin summary sent (' + result.total + ' deliveries)');
+    } else {
+      console.log('[Cron] Admin summary skipped (already sent or no chat ID)');
+    }
+  } catch (err) {
+    console.error('[Cron] Warning: Admin summary failed —', err.message);
+  }
+}
+
+/**
+ * Stops all scheduled cron tasks. Used during graceful shutdown.
+ */
+function stopCronTasks() {
+  for (const task of cron.getTasks().values()) {
+    task.stop();
+  }
+  cron.getTasks().clear();
+}
+
 // ─── App factory (for testing) ──────────────────────────────────────
 
 /**
@@ -211,70 +282,16 @@ function startServer() {
   })();
 
   // 8. Schedule 3 AM daily backup (fallback if server stays up across midnight)
-  try {
-    cron.schedule('0 3 * * *', () => {
-      console.log('[Cron] Running scheduled 3 AM backup...');
-      try {
-        const result = performCompleteBackupCycle({
-          dbPath: path.join(__dirname, 'data', 'dharma-farms.db'),
-          backupDir: path.join(__dirname, 'backup'),
-          maxBackups: 30,
-        });
-        if (result.backedUp) {
-          console.log('[Cron] Database backed up, cleaned up ' + result.deleted + ' old backups');
-        }
-      } catch (err) {
-        console.error('[Cron] Warning: Backup cycle failed —', err.message);
-      }
-    });
-    console.log('[Cron] Scheduled 3 AM daily backup');
-  } catch (err) {
-    console.error('[Cron] Warning: Could not schedule backup —', err.message);
-  }
+  cron.schedule('0 3 * * *', handleDailyBackup);
+  console.log('[Cron] Scheduled 3 AM daily backup');
 
   // 9. Schedule 5:30 AM route push (delivery boys get their routes)
-  try {
-    cron.schedule('30 5 * * *', () => {
-      console.log('[Cron] Running 5:30 AM route push...');
-      (async () => {
-        try {
-          const result = await pushRoutesToAllBoys(db, bot);
-          if (result.pushed) {
-            console.log('[Cron] Routes pushed to ' + result.sent + ' delivery boys');
-          } else {
-            console.log('[Cron] Routes already pushed today, skipping');
-          }
-        } catch (err) {
-          console.error('[Cron] Warning: Route push failed —', err.message);
-        }
-      })();
-    });
-    console.log('[Cron] Scheduled 5:30 AM route push');
-  } catch (err) {
-    console.error('[Cron] Warning: Could not schedule route push —', err.message);
-  }
+  cron.schedule('30 5 * * *', () => handleRoutePush(db, bot));
+  console.log('[Cron] Scheduled 5:30 AM route push');
 
   // 10. Schedule 7:30 AM admin summary (end-of-route report)
-  try {
-    cron.schedule('30 7 * * *', () => {
-      console.log('[Cron] Running 7:30 AM admin summary...');
-      (async () => {
-        try {
-          const result = await sendDailySummaryToAdmin(db, bot);
-          if (result.sent) {
-            console.log('[Cron] Admin summary sent (' + result.total + ' deliveries)');
-          } else {
-            console.log('[Cron] Admin summary skipped (already sent or no chat ID)');
-          }
-        } catch (err) {
-          console.error('[Cron] Warning: Admin summary failed —', err.message);
-        }
-      })();
-    });
-    console.log('[Cron] Scheduled 7:30 AM admin summary');
-  } catch (err) {
-    console.error('[Cron] Warning: Could not schedule admin summary —', err.message);
-  }
+  cron.schedule('30 7 * * *', () => handleAdminSummary(db, bot));
+  console.log('[Cron] Scheduled 7:30 AM admin summary');
 
   // 11. Start listening
   const PORT = process.env.PORT || 3000;
@@ -285,6 +302,7 @@ function startServer() {
   // 12. Graceful shutdown (SIGINT = Ctrl+C)
   process.on('SIGINT', () => {
     console.log('\n[Server] Shutting down gracefully...');
+    stopCronTasks();
     bot.stopPolling();
     db.close();
     server.close(() => {
@@ -303,4 +321,4 @@ if (require.main === module) {
 
 // ─── Exports (for testing) ─────────────────────────────────────────
 
-module.exports = { createApp, validateEnv, startServer };
+module.exports = { createApp, validateEnv, startServer, stopCronTasks };
