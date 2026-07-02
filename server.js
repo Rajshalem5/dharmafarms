@@ -6,10 +6,11 @@
  *   const { createApp } = require('./server');  # For testing
  *
  * Environment variables (from .env):
- *   BOT_TOKEN         Telegram bot token from BotFather
- *   SESSION_SECRET    Secret for Express session (64+ chars recommended)
- *   ADMIN_PASSWORD    Password for admin login
- *   PORT              HTTP listen port (default 3000)
+ *   BOT_TOKEN              Telegram bot token from BotFather
+ *   SESSION_SECRET         Secret for Express session (64+ chars recommended)
+ *   ADMIN_PASSWORD         Password for admin login
+ *   ADMIN_TELEGRAM_CHAT_ID Telegram chat ID for admin (get from @userinfobot)
+ *   PORT                   HTTP listen port (default 3000)
  */
 
 // ─── Module dependencies ─────────────────────────────────────────────
@@ -25,6 +26,11 @@ const { setupAdminRoutes } = require('./routes/admin');
 const { setupTelegramBot } = require('./routes/telegram');
 const { dispatchExistsForToday, generateDispatch } = require('./services/dispatch');
 const { performCompleteBackupCycle } = require('./services/backup');
+const {
+  routesPushedForToday,
+  pushRoutesToAllBoys,
+  sendDailySummaryToAdmin,
+} = require('./services/scheduler');
 const cron = require('node-cron');
 
 // ─── Env validation ─────────────────────────────────────────────────
@@ -41,6 +47,7 @@ function validateEnv() {
     ['BOT_TOKEN', 'Telegram bot token from BotFather'],
     ['SESSION_SECRET', 'Secret for session encryption (64+ chars)'],
     ['ADMIN_PASSWORD', 'Password for admin dashboard login'],
+    ['ADMIN_TELEGRAM_CHAT_ID', 'Telegram chat ID for admin (get from @userinfobot)'],
   ];
 
   const missing = required.filter(([name]) => !process.env[name]);
@@ -188,7 +195,22 @@ function startServer() {
     console.error('[Boot] Warning: Backup failed —', err.message);
   }
 
-  // 7. Schedule 3 AM daily backup (fallback if server stays up across midnight)
+  // 7. Boot-time route push (once per day, idempotent)
+  (async () => {
+    try {
+      if (!routesPushedForToday(db)) {
+        const result = await pushRoutesToAllBoys(db, bot);
+        console.log('[Boot] Routes pushed to ' + result.sent + ' delivery boys' +
+          (result.failed > 0 ? ', ' + result.failed + ' failed' : ''));
+      } else {
+        console.log('[Boot] Routes already pushed today, skipping');
+      }
+    } catch (err) {
+      console.error('[Boot] Warning: Route push failed —', err.message);
+    }
+  })();
+
+  // 8. Schedule 3 AM daily backup (fallback if server stays up across midnight)
   try {
     cron.schedule('0 3 * * *', () => {
       console.log('[Cron] Running scheduled 3 AM backup...');
@@ -210,13 +232,57 @@ function startServer() {
     console.error('[Cron] Warning: Could not schedule backup —', err.message);
   }
 
-  // 8. Start listening
+  // 9. Schedule 5:30 AM route push (delivery boys get their routes)
+  try {
+    cron.schedule('30 5 * * *', () => {
+      console.log('[Cron] Running 5:30 AM route push...');
+      (async () => {
+        try {
+          const result = await pushRoutesToAllBoys(db, bot);
+          if (result.pushed) {
+            console.log('[Cron] Routes pushed to ' + result.sent + ' delivery boys');
+          } else {
+            console.log('[Cron] Routes already pushed today, skipping');
+          }
+        } catch (err) {
+          console.error('[Cron] Warning: Route push failed —', err.message);
+        }
+      })();
+    });
+    console.log('[Cron] Scheduled 5:30 AM route push');
+  } catch (err) {
+    console.error('[Cron] Warning: Could not schedule route push —', err.message);
+  }
+
+  // 10. Schedule 7:30 AM admin summary (end-of-route report)
+  try {
+    cron.schedule('30 7 * * *', () => {
+      console.log('[Cron] Running 7:30 AM admin summary...');
+      (async () => {
+        try {
+          const result = await sendDailySummaryToAdmin(db, bot);
+          if (result.sent) {
+            console.log('[Cron] Admin summary sent (' + result.total + ' deliveries)');
+          } else {
+            console.log('[Cron] Admin summary skipped (already sent or no chat ID)');
+          }
+        } catch (err) {
+          console.error('[Cron] Warning: Admin summary failed —', err.message);
+        }
+      })();
+    });
+    console.log('[Cron] Scheduled 7:30 AM admin summary');
+  } catch (err) {
+    console.error('[Cron] Warning: Could not schedule admin summary —', err.message);
+  }
+
+  // 11. Start listening
   const PORT = process.env.PORT || 3000;
   const server = app.listen(PORT, () => {
     console.log(`[Server] Dharma Farms listening on port ${PORT}`);
   });
 
-  // 9. Graceful shutdown (SIGINT = Ctrl+C)
+  // 12. Graceful shutdown (SIGINT = Ctrl+C)
   process.on('SIGINT', () => {
     console.log('\n[Server] Shutting down gracefully...');
     bot.stopPolling();
