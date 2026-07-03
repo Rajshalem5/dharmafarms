@@ -541,6 +541,22 @@ function setupAdminRoutes(app, db) {
     res.redirect('/admin/delivery-boys');
   });
 
+  // ── Get customer count for a delivery boy (JSON) ──────────────────
+
+  app.get('/admin/delivery-boys/:id/customer-count', requireAuth, (req, res) => {
+    const boyId = parseInt(req.params.id, 10);
+
+    if (isNaN(boyId)) {
+      return res.status(400).json({ error: 'Invalid delivery boy ID' });
+    }
+
+    const row = db.prepare(
+      "SELECT COUNT(*) AS count FROM customers WHERE delivery_boy_id = ? AND status = 'active'"
+    ).get(boyId);
+
+    res.json({ count: row.count });
+  });
+
   // ── Toggle delivery boy status ───────────────────────────────────
 
   app.post('/admin/delivery-boys/:id/toggle-status', requireAuth, (req, res) => {
@@ -561,6 +577,94 @@ function setupAdminRoutes(app, db) {
     req.session.flash = {
       type: 'success',
       message: `${boy.name} is now ${newStatus}.`,
+    };
+
+    res.redirect('/admin/delivery-boys');
+  });
+
+  // ── Bulk reassign customers from inactive delivery boy ────────────
+
+  app.post('/admin/delivery-boys/:id/reassign', requireAuth, (req, res) => {
+    const sourceId = parseInt(req.params.id, 10);
+    const targetId = parseInt(req.body.target_boy_id, 10);
+
+    // Guard 1: Invalid source ID
+    if (isNaN(sourceId)) {
+      req.session.flash = { type: 'error', message: 'Invalid source delivery boy ID.' };
+      return res.redirect('/admin/delivery-boys');
+    }
+
+    // Guard 2: Invalid or missing target ID
+    if (isNaN(targetId) || targetId <= 0) {
+      req.session.flash = { type: 'error', message: 'Please select a target delivery boy.' };
+      return res.redirect('/admin/delivery-boys');
+    }
+
+    // Guard 3: Source and target are the same
+    if (sourceId === targetId) {
+      req.session.flash = { type: 'error', message: 'Source and target delivery boy cannot be the same.' };
+      return res.redirect('/admin/delivery-boys');
+    }
+
+    // Fetch source boy
+    const sourceBoy = db.prepare(
+      'SELECT id, name, status FROM delivery_boys WHERE id = ?'
+    ).get(sourceId);
+
+    // Guard 4: Source not found
+    if (!sourceBoy) {
+      req.session.flash = { type: 'error', message: 'Source delivery boy not found.' };
+      return res.redirect('/admin/delivery-boys');
+    }
+
+    // Guard 5: Source must be inactive
+    if (sourceBoy.status !== 'inactive') {
+      req.session.flash = { type: 'error', message: 'Cannot reassign from an active delivery boy. Deactivate them first.' };
+      return res.redirect('/admin/delivery-boys');
+    }
+
+    // Fetch target boy
+    const targetBoy = db.prepare(
+      'SELECT id, name, status FROM delivery_boys WHERE id = ?'
+    ).get(targetId);
+
+    // Guard 6: Target not found
+    if (!targetBoy) {
+      req.session.flash = { type: 'error', message: 'Target delivery boy not found.' };
+      return res.redirect('/admin/delivery-boys');
+    }
+
+    // Guard 7: Target must be active
+    if (targetBoy.status !== 'active') {
+      req.session.flash = { type: 'error', message: 'Target delivery boy must be active.' };
+      return res.redirect('/admin/delivery-boys');
+    }
+
+    // Count active customers assigned to source boy
+    const countRow = db.prepare(
+      "SELECT COUNT(*) AS count FROM customers WHERE delivery_boy_id = ? AND status = 'active'"
+    ).get(sourceId);
+
+    // Guard 8: No active customers to reassign
+    if (countRow.count === 0) {
+      req.session.flash = { type: 'error', message: `No active customers assigned to ${sourceBoy.name}.` };
+      return res.redirect('/admin/delivery-boys');
+    }
+
+    // Perform the bulk update in a transaction
+    const reassign = db.transaction(() => {
+      db.prepare(`
+        UPDATE customers
+        SET delivery_boy_id = ?, updated_at = datetime('now')
+        WHERE delivery_boy_id = ? AND status = 'active'
+      `).run(targetId, sourceId);
+    });
+
+    reassign();
+
+    req.session.flash = {
+      type: 'success',
+      message: `${countRow.count} customers reassigned from ${sourceBoy.name} to ${targetBoy.name}.`,
     };
 
     res.redirect('/admin/delivery-boys');
