@@ -171,6 +171,17 @@ function initializeDatabase() {
     ).run(3, 'v3_create_scheduler_log');
   }
 
+  // --- Migration v4: Add paused_from to subscriptions ---
+  if (currentVersion < 4) {
+    db.exec(`
+      ALTER TABLE subscriptions ADD COLUMN paused_from TEXT;
+    `);
+
+    db.prepare(
+      'INSERT INTO _migrations (version, name) VALUES (?, ?)'
+    ).run(4, 'v4_add_paused_from_to_subscriptions');
+  }
+
   // --- Seed delivery boys ---
   const seedBoy = db.prepare(
     'INSERT OR IGNORE INTO delivery_boys (id, name, phone, region) VALUES (?, ?, ?, ?)'

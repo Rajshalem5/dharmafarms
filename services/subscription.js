@@ -234,9 +234,10 @@ function pauseSubscription(db, customerId, startDate, endDate) {
       UPDATE subscriptions
       SET status = 'paused',
           paused_until = ?,
+          paused_from = ?,
           remaining_days = remaining_days + ?
       WHERE customer_id = ? AND status = 'active' AND paused_until IS NULL
-    `).run(endDate, daysAdded, customerId);
+    `).run(endDate, startDate, daysAdded, customerId);
 
     // Delete pending deliveries within the pause range
     db.prepare(`
@@ -252,6 +253,10 @@ function pauseSubscription(db, customerId, startDate, endDate) {
 
 /**
  * Resumes a paused subscription.
+ *
+ * Calculates actual paused days vs planned pause days and adjusts
+ * remaining_days accordingly. If paused_from is not set (legacy data),
+ * no remaining_days adjustment is made.
  *
  * Validation:
  * - Customer must exist
@@ -269,13 +274,36 @@ function resumeSubscription(db, customerId) {
     throw new Error('Customer not found');
   }
 
-  // Validate a paused subscription exists
+  // Validate a paused subscription exists; also fetch paused_from and paused_until
   const sub = db.prepare(
-    "SELECT id FROM subscriptions WHERE customer_id = ? AND paused_until IS NOT NULL ORDER BY id DESC LIMIT 1"
+    "SELECT id, paused_from, paused_until FROM subscriptions WHERE customer_id = ? AND paused_until IS NOT NULL ORDER BY id DESC LIMIT 1"
   ).get(customerId);
 
   if (!sub) {
     throw new Error('Subscription is not paused');
+  }
+
+  // Adjust remaining_days if paused_from is available (post-migration data)
+  if (sub.paused_from) {
+    const today = new Date();
+    const pausedFrom = new Date(sub.paused_from + 'T00:00:00');
+    const pausedUntil = new Date(sub.paused_until + 'T00:00:00');
+
+    // Planned pause duration (inclusive of both start and end)
+    const plannedPauseDays = Math.round((pausedUntil - pausedFrom) / 86400000) + 1;
+
+    // Actual days elapsed since pause started (capped at 0)
+    const actualPausedDays = Math.max(0, Math.floor((today - pausedFrom) / 86400000));
+
+    // Remove the unused portion of planned pause days from remaining_days
+    const excessDays = plannedPauseDays - actualPausedDays;
+
+    if (excessDays !== 0) {
+      db.prepare(`
+        UPDATE subscriptions SET remaining_days = remaining_days - ?
+        WHERE customer_id = ? AND paused_until IS NOT NULL
+      `).run(excessDays, customerId);
+    }
   }
 
   db.prepare(`

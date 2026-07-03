@@ -605,19 +605,19 @@ describe('resumeSubscription', () => {
     db = createTestDb();
     seedSimpleData(db);
 
-    // Pause for 10 days, 5 days ago (as if paused_from = 5 days ago, paused_until = 5 days from now)
+    // Pause range: 5 days ago to 5 days from now = 11 days (inclusive)
     const pausedFrom = daysFromNow(-5);
     const pausedUntil = daysFromNow(5);
 
     db.prepare(
       `UPDATE subscriptions
-       SET status = 'paused', paused_until = ?, paused_from = ?, remaining_days = remaining_days + 10
+       SET status = 'paused', paused_until = ?, paused_from = ?, remaining_days = remaining_days + 11
        WHERE customer_id = 1`
     ).run(pausedUntil, pausedFrom);
 
-    // 25 original + 10 pause days added = 35
+    // 25 original + 11 pause days added = 36
     const before = db.prepare('SELECT remaining_days FROM subscriptions WHERE customer_id = 1').get();
-    assert.strictEqual(before.remaining_days, 35, 'should have 35 before resume');
+    assert.strictEqual(before.remaining_days, 36, 'should have 36 before resume');
 
     const result = resumeSubscription(db, 1);
 
