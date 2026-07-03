@@ -31,7 +31,7 @@ function lookupDelivery(db, code, boyId) {
     SELECT d.id, d.status, d.marked_at, c.id AS customer_id, c.code, c.name
     FROM deliveries d
     JOIN customers c ON c.id = d.customer_id
-    WHERE c.code = ? AND d.delivery_date = date('now') AND c.delivery_boy_id = ?
+    WHERE c.code = ? COLLATE NOCASE AND d.delivery_date = date('now') AND c.delivery_boy_id = ?
   `).get(code, boyId);
 }
 
