@@ -151,7 +151,16 @@ function createApp(db) {
   // ── Security headers (Helmet) ──────────────────────────────────────
   // Must be the first middleware so headers are set before any route processing.
 
-  app.use(helmet());
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "cdn.jsdelivr.net"],
+        styleSrc: ["'self'", "'unsafe-inline'", "cdn.jsdelivr.net"],
+        imgSrc: ["'self'", "data:"],
+      },
+    },
+  }));
 
   // ── Log sanitization ──────────────────────────────────────────────
   /**
@@ -234,13 +243,17 @@ function createApp(db) {
   // ── Error middleware ──────────────────────────────────────────────
 
   app.use((err, req, res, _next) => {
-    console.error('[Server] Unhandled error:', err.message);
+    const sanitizedUrl = req.originalUrl;
+    console.error('[Server] Unhandled error on', sanitizedUrl + ':', err.message);
     console.error(err.stack);
-
-    res.status(500).json({
-      error: 'Internal server error',
-      message: process.env.NODE_ENV === 'development' ? err.message : undefined,
-    });
+    if (req.accepts('html')) {
+      res.status(500).render('errors/500', { url: sanitizedUrl });
+    } else {
+      res.status(500).json({
+        error: 'Internal server error',
+        message: process.env.NODE_ENV === 'development' ? err.message : undefined,
+      });
+    }
   });
 
   return app;
