@@ -1524,6 +1524,305 @@ describe('routes/admin.js — setupAdminRoutes', () => {
       });
     });
 
+    // ── GET /admin/delivery-boys/:id/customer-count (JSON) ─────────
+
+    describe('GET /admin/delivery-boys/:id/customer-count', () => {
+      it('returns count of active customers for a delivery boy', async () => {
+        const ccDb = createTestDb();
+        seedDeliveryBoys(ccDb);
+        seedCustomers(ccDb);
+        const ccApp = createApp(ccDb, 'admin123');
+
+        const loginRes = await postForm(ccApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        // Boy 1 (Raju) has 2 active customers (Ram, Shyam) + 0 inactive
+        const res = await request(ccApp, 'GET', '/admin/delivery-boys/1/customer-count', {
+          cookie,
+          headers: { 'Accept': 'application/json' },
+        });
+
+        assert.strictEqual(res.status, 200);
+        assert.match(res.headers['content-type'], /json/);
+
+        const data = JSON.parse(res.body);
+        assert.strictEqual(data.count, 2);
+        ccDb.close();
+      });
+
+      it('counts only active customers (excludes inactive)', async () => {
+        const ccDb = createTestDb();
+        seedDeliveryBoys(ccDb);
+        seedCustomers(ccDb);
+        const ccApp = createApp(ccDb, 'admin123');
+
+        const loginRes = await postForm(ccApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        // Boy 2 (Vijay) has 1 active (Gita) + 1 inactive (Sita) → count should be 1
+        const res = await request(ccApp, 'GET', '/admin/delivery-boys/2/customer-count', {
+          cookie,
+          headers: { 'Accept': 'application/json' },
+        });
+
+        const data = JSON.parse(res.body);
+        assert.strictEqual(data.count, 1);
+        ccDb.close();
+      });
+
+      it('returns 0 when no customers assigned', async () => {
+        const ccDb = createTestDb();
+        seedDeliveryBoys(ccDb);
+        // No customers seeded
+        const ccApp = createApp(ccDb, 'admin123');
+
+        const loginRes = await postForm(ccApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(ccApp, 'GET', '/admin/delivery-boys/1/customer-count', {
+          cookie,
+          headers: { 'Accept': 'application/json' },
+        });
+
+        const data = JSON.parse(res.body);
+        assert.strictEqual(data.count, 0);
+        ccDb.close();
+      });
+
+      it('requires authentication', async () => {
+        const res = await request(app, 'GET', '/admin/delivery-boys/1/customer-count', {
+          followRedirect: false,
+        });
+        assert.strictEqual(res.status, 302);
+        assert.match(res.headers.location, /\/admin\/login/);
+      });
+    });
+
+    // ── POST /admin/delivery-boys/:id/reassign ─────────────────────
+
+    describe('POST /admin/delivery-boys/:id/reassign', () => {
+      it('reassigns active customers from inactive source to active target', async () => {
+        const reDb = createTestDb();
+        seedDeliveryBoys(reDb);
+        seedCustomers(reDb);
+        // Deactivate boy 1 (Raju) so he becomes the source
+        reDb.prepare("UPDATE delivery_boys SET status = 'inactive' WHERE id = 1").run();
+        const reApp = createApp(reDb, 'admin123');
+
+        const loginRes = await postForm(reApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        // Boy 1 (Raju, inactive) has 2 active customers → reassign to boy 2 (Vijay, active)
+        const res = await postForm(reApp, '/admin/delivery-boys/1/reassign', {
+          target_boy_id: 2,
+        }, cookie);
+
+        assert.strictEqual(res.status, 302);
+
+        // Verify both customers were moved
+        const moved = reDb.prepare(
+          "SELECT COUNT(*) AS c FROM customers WHERE delivery_boy_id = 2 AND status = 'active'"
+        ).get().c;
+        assert.strictEqual(moved, 3); // Gita (was 2) + Ram (was 1) + Shyam (was 1) = 3 active
+
+        // Verify source boy has no active customers
+        const sourceCount = reDb.prepare(
+          "SELECT COUNT(*) AS c FROM customers WHERE delivery_boy_id = 1 AND status = 'active'"
+        ).get().c;
+        assert.strictEqual(sourceCount, 0);
+
+        reDb.close();
+      });
+
+      it('rejects when source boy is active', async () => {
+        const reDb = createTestDb();
+        seedDeliveryBoys(reDb);
+        seedCustomers(reDb);
+        // Boy 1 (Raju) is still active
+        const reApp = createApp(reDb, 'admin123');
+
+        const loginRes = await postForm(reApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await postForm(reApp, '/admin/delivery-boys/1/reassign', {
+          target_boy_id: 2,
+        }, cookie);
+
+        assert.strictEqual(res.status, 302);
+
+        // Customers should NOT be moved
+        const moved = reDb.prepare(
+          "SELECT COUNT(*) AS c FROM customers WHERE delivery_boy_id = 2 AND status = 'active'"
+        ).get().c;
+        assert.strictEqual(moved, 1); // Still only Gita
+
+        reDb.close();
+      });
+
+      it('rejects when target boy is inactive', async () => {
+        const reDb = createTestDb();
+        seedDeliveryBoys(reDb);
+        seedCustomers(reDb);
+        // Deactivate source (boy 1) and target (boy 2)
+        reDb.prepare("UPDATE delivery_boys SET status = 'inactive' WHERE id IN (1, 2)").run();
+        const reApp = createApp(reDb, 'admin123');
+
+        const loginRes = await postForm(reApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await postForm(reApp, '/admin/delivery-boys/1/reassign', {
+          target_boy_id: 2,
+        }, cookie);
+
+        assert.strictEqual(res.status, 302);
+
+        // Customers should NOT be moved
+        const moved = reDb.prepare(
+          "SELECT COUNT(*) AS c FROM customers WHERE delivery_boy_id = 2 AND status = 'active'"
+        ).get().c;
+        assert.strictEqual(moved, 1); // Still only Gita
+
+        reDb.close();
+      });
+
+      it('rejects when source and target are the same boy', async () => {
+        const reDb = createTestDb();
+        seedDeliveryBoys(reDb);
+        seedCustomers(reDb);
+        reDb.prepare("UPDATE delivery_boys SET status = 'inactive' WHERE id = 1").run();
+        const reApp = createApp(reDb, 'admin123');
+
+        const loginRes = await postForm(reApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await postForm(reApp, '/admin/delivery-boys/1/reassign', {
+          target_boy_id: 1,
+        }, cookie);
+
+        assert.strictEqual(res.status, 302);
+
+        // Customers should remain with boy 1
+        const count = reDb.prepare(
+          "SELECT COUNT(*) AS c FROM customers WHERE delivery_boy_id = 1 AND status = 'active'"
+        ).get().c;
+        assert.strictEqual(count, 2);
+
+        reDb.close();
+      });
+
+      it('rejects when source boy does not exist', async () => {
+        const reDb = createTestDb();
+        seedDeliveryBoys(reDb);
+        seedCustomers(reDb);
+        const reApp = createApp(reDb, 'admin123');
+
+        const loginRes = await postForm(reApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await postForm(reApp, '/admin/delivery-boys/999/reassign', {
+          target_boy_id: 2,
+        }, cookie);
+
+        assert.strictEqual(res.status, 302);
+        reDb.close();
+      });
+
+      it('rejects when target_boy_id is missing or invalid', async () => {
+        const reDb = createTestDb();
+        seedDeliveryBoys(reDb);
+        seedCustomers(reDb);
+        reDb.prepare("UPDATE delivery_boys SET status = 'inactive' WHERE id = 1").run();
+        const reApp = createApp(reDb, 'admin123');
+
+        const loginRes = await postForm(reApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        // Empty target_boy_id
+        const res = await postForm(reApp, '/admin/delivery-boys/1/reassign', {
+          target_boy_id: '',
+        }, cookie);
+
+        assert.strictEqual(res.status, 302);
+        reDb.close();
+      });
+
+      it('shows message when no active customers to reassign', async () => {
+        const reDb = createTestDb();
+        seedDeliveryBoys(reDb);
+        // No customers assigned to boy 1
+        reDb.prepare("UPDATE delivery_boys SET status = 'inactive' WHERE id = 1").run();
+        const reApp = createApp(reDb, 'admin123');
+
+        const loginRes = await postForm(reApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await postForm(reApp, '/admin/delivery-boys/1/reassign', {
+          target_boy_id: 2,
+        }, cookie);
+
+        assert.strictEqual(res.status, 302);
+        reDb.close();
+      });
+
+      it('does not reassign inactive customers (audit trail)', async () => {
+        const reDb = createTestDb();
+        seedDeliveryBoys(reDb);
+        seedCustomers(reDb);
+        // Deactivate boy 2 (Vijay) — he has Gita (active) and Sita (inactive)
+        reDb.prepare("UPDATE delivery_boys SET status = 'inactive' WHERE id = 2").run();
+        const reApp = createApp(reDb, 'admin123');
+
+        const loginRes = await postForm(reApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        await postForm(reApp, '/admin/delivery-boys/2/reassign', {
+          target_boy_id: 1,
+        }, cookie);
+
+        // Active customer (Gita) should be moved to boy 1
+        const gita = reDb.prepare("SELECT delivery_boy_id FROM customers WHERE id = 3").get();
+        assert.strictEqual(gita.delivery_boy_id, 1, 'Active customer Gita should be reassigned');
+
+        // Inactive customer (Sita) should still be with boy 2
+        const sita = reDb.prepare("SELECT delivery_boy_id FROM customers WHERE id = 4").get();
+        assert.strictEqual(sita.delivery_boy_id, 2, 'Inactive customer Sita should stay with original boy');
+
+        reDb.close();
+      });
+
+      it('requires authentication', async () => {
+        const res = await request(app, 'POST', '/admin/delivery-boys/1/reassign', {
+          body: 'target_boy_id=2',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          followRedirect: false,
+        });
+        assert.strictEqual(res.status, 302);
+        assert.match(res.headers.location, /\/admin\/login/);
+      });
+    });
+
     // ── GET /admin/payments ─────────────────────────────────────────
 
     describe('GET /admin/payments — payments page', () => {
