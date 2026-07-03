@@ -622,6 +622,122 @@ describe('routes/telegram.js — setupTelegramBot', () => {
     });
   });
 
+  // ── Case-insensitive customer code lookup (Fix 1) ────────────────
+
+  describe('case-insensitive customer code lookup', () => {
+    it('handles lowercase /done c010', async () => {
+      bot.clearMessages();
+      // Add a fresh customer with pending delivery for Raju (boy 1, chat 1001)
+      testDb.prepare(
+        `INSERT INTO customers (id, code, name, phone, address, delivery_boy_id, monthly_rate, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(10, 'C010', 'LowerDone', '9000000010', '10 Lower St', 1, 300000, 'active');
+      testDb.prepare(
+        `INSERT INTO subscriptions (customer_id, start_date, end_date, total_days, remaining_days, status)
+         VALUES (?, date('now', '-5 days'), date('now', '+25 days'), 30, 25, 'active')`
+      ).run(10);
+      testDb.prepare(
+        `INSERT INTO deliveries (customer_id, delivery_boy_id, delivery_date, status)
+         VALUES (?, ?, date('now'), 'pending')`
+      ).run(10, 1);
+
+      await bot.simulateMessage('/done c010', 1001); // lowercase code
+
+      const delivery = testDb.prepare(`
+        SELECT d.status FROM deliveries d
+        JOIN customers c ON c.id = d.customer_id
+        WHERE c.code = 'C010' AND d.delivery_date = date('now')
+      `).get();
+      assert.strictEqual(delivery.status, 'delivered', 'Lowercase /done should match C010');
+
+      const last = bot.lastMessage();
+      assert.ok(last, 'Should have sent a message');
+      assert.match(last.text, /C010|delivered|✅/i, 'Should confirm delivery');
+    });
+
+    it('handles lowercase /skip c002', async () => {
+      bot.clearMessages();
+      // Reset C002 to pending first
+      testDb.prepare(`
+        UPDATE deliveries SET status = 'pending', marked_at = NULL
+        WHERE customer_id = 2 AND delivery_date = date('now')
+      `).run();
+
+      await bot.simulateMessage('/skip c002', 1001); // lowercase code
+
+      const delivery = testDb.prepare(`
+        SELECT d.status FROM deliveries d
+        JOIN customers c ON c.id = d.customer_id
+        WHERE c.code = 'C002' AND d.delivery_date = date('now')
+      `).get();
+      assert.strictEqual(delivery.status, 'skipped', 'Lowercase /skip should match C002');
+
+      const last = bot.lastMessage();
+      assert.ok(last, 'Should have sent a message');
+      assert.match(last.text, /C002|skipped|⏭️/i, 'Should confirm skip');
+    });
+
+    it('handles lowercase /arriving c011', async () => {
+      bot.clearMessages();
+      // Add a fresh customer with pending delivery for Raju
+      testDb.prepare(
+        `INSERT INTO customers (id, code, name, phone, address, delivery_boy_id, monthly_rate, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(11, 'C011', 'LowerArrive', '9000000011', '11 Lower St', 1, 300000, 'active');
+      testDb.prepare(
+        `INSERT INTO subscriptions (customer_id, start_date, end_date, total_days, remaining_days, status)
+         VALUES (?, date('now', '-5 days'), date('now', '+25 days'), 30, 25, 'active')`
+      ).run(11);
+      testDb.prepare(
+        `INSERT INTO deliveries (customer_id, delivery_boy_id, delivery_date, status)
+         VALUES (?, ?, date('now'), 'pending')`
+      ).run(11, 1);
+
+      await bot.simulateMessage('/arriving c011', 1001); // lowercase code
+
+      const delivery = testDb.prepare(`
+        SELECT d.status FROM deliveries d
+        JOIN customers c ON c.id = d.customer_id
+        WHERE c.code = 'C011' AND d.delivery_date = date('now')
+      `).get();
+      assert.strictEqual(delivery.status, 'arriving', 'Lowercase /arriving should match C011');
+
+      const last = bot.lastMessage();
+      assert.ok(last, 'Should have sent a message');
+      assert.match(last.text, /C011|arriving|🚚/i, 'Should confirm arriving');
+    });
+
+    it('handles lowercase /issue c012', async () => {
+      bot.clearMessages();
+      // Add a fresh customer with pending delivery for Priya (boy 3, chat 1003)
+      testDb.prepare(
+        `INSERT INTO customers (id, code, name, phone, address, delivery_boy_id, monthly_rate, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(12, 'C012', 'LowerIssue', '9000000012', '12 Lower St', 3, 300000, 'active');
+      testDb.prepare(
+        `INSERT INTO subscriptions (customer_id, start_date, end_date, total_days, remaining_days, status)
+         VALUES (?, date('now', '-5 days'), date('now', '+25 days'), 30, 25, 'active')`
+      ).run(12);
+      testDb.prepare(
+        `INSERT INTO deliveries (customer_id, delivery_boy_id, delivery_date, status)
+         VALUES (?, ?, date('now'), 'pending')`
+      ).run(12, 3);
+
+      await bot.simulateMessage('/issue c012 No milk', 1003); // lowercase code
+
+      const delivery = testDb.prepare(`
+        SELECT d.status FROM deliveries d
+        JOIN customers c ON c.id = d.customer_id
+        WHERE c.code = 'C012' AND d.delivery_date = date('now')
+      `).get();
+      assert.strictEqual(delivery.status, 'issue', 'Lowercase /issue should match C012');
+
+      const last = bot.lastMessage();
+      assert.ok(last, 'Should have sent a message');
+      assert.match(last.text, /C012|issue|⚠️/i, 'Should confirm issue');
+    });
+  });
+
   // ── /finish ──────────────────────────────────────────────────────
 
   describe('/finish — route summary', () => {
