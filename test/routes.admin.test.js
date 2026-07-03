@@ -538,11 +538,14 @@ describe('routes/admin.js — setupAdminRoutes', () => {
         // 1. Token column header exists
         assert.match(res.body, /<th>Token<\/th>/);
 
-        // 2. Copy button exists with full token in a data attribute
+        // 2. Copy button exists with full token in a data-token attribute
         assert.match(res.body, /data-token="/);
         assert.ok(res.body.includes(longToken), 'Full token appears in a data-token attribute');
 
-        // 3. The truncated token text (first 16 chars + ellipsis) is NOT displayed as visible text
+        // 3. The button does NOT use the 📋 emoji
+        assert.ok(!res.body.includes('📋'), 'Copy button should not use emoji');
+
+        // 4. The truncated token text (first 16 chars + ellipsis) is NOT displayed as visible text
         const first16 = longToken.substring(0, 16);
         assert.ok(
           !res.body.includes(first16 + '…'),
