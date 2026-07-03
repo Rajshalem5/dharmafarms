@@ -1,0 +1,181 @@
+<!-- views/admin/issues.ejs — Issue Tracking Board -->
+<div class="p-6">
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-[#1B4332]">Issue Tracking Board</h1>
+    <div class="flex items-center gap-3">
+      <span class="bg-red-100 text-red-700 text-xs font-medium px-2.5 py-0.5 rounded-full">
+        <%= issues.filter(i => !i.resolved_at).length %> open
+      </span>
+      <span class="text-sm text-gray-500">
+        <% if (issues.length === 0) { %>
+          No issues
+        <% } else { %>
+          Showing <%= issues.length %> issue<%= issues.length !== 1 ? 's' : '' %>
+        <% } %>
+      </span>
+    </div>
+  </div>
+
+  <% if (flash) { %>
+    <div class="<%= flash.type === 'success' ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700' %> border px-4 py-3 rounded-lg mb-4 text-sm">
+      <%= flash.message %>
+    </div>
+  <% } %>
+
+  <!-- Filter bar -->
+  <div class="bg-white rounded-xl shadow-sm p-4 mb-6">
+    <form action="/admin/issues" method="GET" class="flex flex-wrap items-end gap-3">
+      <div>
+        <label class="block text-xs font-medium text-gray-500 mb-1">From</label>
+        <input type="date" name="date_from" value="<%= filters.date_from %>"
+               class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2D6A4F]">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-500 mb-1">To</label>
+        <input type="date" name="date_to" value="<%= filters.date_to %>"
+               class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2D6A4F]">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-500 mb-1">Delivery Boy</label>
+        <select name="delivery_boy_id"
+                class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2D6A4F]">
+          <option value="">All Boys</option>
+          <% deliveryBoys.forEach(function(boy) { %>
+            <option value="<%= boy.id %>" <%= filters.delivery_boy_id == boy.id ? 'selected' : '' %>><%= boy.name %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-500 mb-1">Status</label>
+        <select name="status"
+                class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2D6A4F]">
+          <option value="all" <%= filters.status === 'all' ? 'selected' : '' %>>All</option>
+          <option value="open" <%= filters.status === 'open' ? 'selected' : '' %>>Open</option>
+          <option value="resolved" <%= filters.status === 'resolved' ? 'selected' : '' %>>Resolved</option>
+        </select>
+      </div>
+      <button type="submit" class="px-4 py-2 bg-[#2D6A4F] text-white text-sm font-medium rounded-lg hover:bg-[#1B4332] transition-colors">
+        Apply
+      </button>
+      <a href="/admin/issues" class="px-4 py-2 bg-gray-100 text-gray-600 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors">
+        Clear Filters
+      </a>
+    </form>
+  </div>
+
+  <!-- Issues table -->
+  <% if (issues.length === 0) { %>
+    <!-- Empty state -->
+    <div class="bg-white rounded-xl shadow-sm p-12 text-center">
+      <svg class="w-16 h-16 mx-auto text-green-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      <p class="text-lg font-medium text-gray-500 mb-1">No issues reported</p>
+      <p class="text-sm text-gray-400">All deliveries are running smoothly.</p>
+    </div>
+  <% } else { %>
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Code</th>
+            <th>Customer</th>
+            <th>Boy</th>
+            <th>Reason</th>
+            <th>Status</th>
+            <th>Resolution</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% issues.forEach(function(issue) { %>
+            <tr>
+              <td class="whitespace-nowrap"><%= issue.delivery_date %></td>
+              <td class="font-mono text-sm"><%= issue.customer_code %></td>
+              <td><%= issue.customer_name %></td>
+              <td><%= issue.boy_name %></td>
+              <td>
+                <div><%= issue.issue_reason %></div>
+                <% if (issue.marked_at) { %>
+                  <div class="text-xs text-gray-400 mt-0.5"><%= issue.marked_at %></div>
+                <% } %>
+              </td>
+              <td>
+                <% if (!issue.resolved_at) { %>
+                  <span class="badge badge-issue">Open</span>
+                <% } else { %>
+                  <span class="badge badge-delivered">Resolved</span>
+                <% } %>
+              </td>
+              <td>
+                <% if (issue.resolved_at) { %>
+                  <div class="text-sm"><%= issue.resolved_note %></div>
+                  <div class="text-xs text-gray-400 mt-0.5"><%= issue.resolved_at %></div>
+                <% } else { %>
+                  <span class="text-gray-400">—</span>
+                <% } %>
+              </td>
+              <td>
+                <% if (!issue.resolved_at) { %>
+                  <button onclick="openResolveModal(<%= issue.id %>, '<%= issue.customer_code %>', '<%= issue.customer_name.replace(/'/g, "\\'") %>')"
+                          class="px-3 py-1.5 bg-amber-500 text-white text-xs font-medium rounded-lg hover:bg-amber-600 transition-colors">
+                    Resolve
+                  </button>
+                <% } else { %>
+                  <span class="text-gray-400 text-sm">—</span>
+                <% } %>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+
+<!-- Resolve Modal -->
+<div id="resolveModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-50" onclick="closeResolveModal(event)">
+  <div class="bg-white rounded-xl p-6 w-full max-w-md mx-4 shadow-xl" onclick="event.stopPropagation()">
+    <h3 class="text-lg font-semibold text-[#1B4332] mb-2">Resolve Issue</h3>
+    <p class="text-sm text-gray-500 mb-4" id="resolveModalCustomer">Customer: <span id="resolveModalCode"></span> — <span id="resolveModalName"></span></p>
+    <form id="resolveForm" method="POST">
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-1">Resolution Note</label>
+        <textarea name="resolved_note" rows="3" required
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2D6A4F]"
+                  placeholder="Describe what was done to resolve this issue..."></textarea>
+      </div>
+      <div class="flex justify-end gap-2">
+        <button type="button" onclick="closeResolveModal()"
+                class="px-4 py-2 bg-gray-100 text-gray-600 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors">
+          Cancel
+        </button>
+        <button type="submit"
+                class="px-4 py-2 bg-[#2D6A4F] text-white text-sm font-medium rounded-lg hover:bg-[#1B4332] transition-colors">
+          Resolve Issue
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openResolveModal(id, code, name) {
+  document.getElementById('resolveForm').action = '/admin/issues/' + id + '/resolve<%= (filters.date_from ? '?date_from=' + encodeURIComponent(filters.date_from) : '') + (filters.date_to ? '&date_to=' + encodeURIComponent(filters.date_to) : '') + (filters.delivery_boy_id ? '&delivery_boy_id=' + encodeURIComponent(filters.delivery_boy_id) : '') + (filters.status !== 'all' ? '&status=' + encodeURIComponent(filters.status) : '') %>';
+  document.getElementById('resolveModalCode').textContent = code;
+  document.getElementById('resolveModalName').textContent = name;
+  document.getElementById('resolveModal').classList.remove('hidden');
+}
+
+function closeResolveModal() {
+  document.getElementById('resolveModal').classList.add('hidden');
+  document.getElementById('resolveForm').reset();
+}
+
+// Close modal on Escape key
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeResolveModal();
+});
+</script>

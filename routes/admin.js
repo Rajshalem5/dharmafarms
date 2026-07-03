@@ -513,6 +513,132 @@ function setupAdminRoutes(app, db) {
     res.redirect('/admin/delivery-boys');
   });
 
+  // ── Issue tracking board ───────────────────────────────────────────
+
+  app.get('/admin/issues', requireAuth, (req, res) => {
+    const { date_from, date_to, delivery_boy_id, status } = req.query;
+
+    const filters = { date_from: date_from || '', date_to: date_to || '', delivery_boy_id: delivery_boy_id || '', status: status || 'all' };
+
+    // Validate date format
+    if (filters.date_from && !/^\d{4}-\d{2}-\d{2}$/.test(filters.date_from)) filters.date_from = '';
+    if (filters.date_to && !/^\d{4}-\d{2}-\d{2}$/.test(filters.date_to)) filters.date_to = '';
+
+    const whereClauses = ["d.status = 'issue'"];
+    const params = [];
+
+    if (filters.date_from) {
+      whereClauses.push('d.delivery_date >= ?');
+      params.push(filters.date_from);
+    }
+    if (filters.date_to) {
+      whereClauses.push('d.delivery_date <= ?');
+      params.push(filters.date_to);
+    }
+    if (filters.delivery_boy_id) {
+      const boyId = parseInt(filters.delivery_boy_id, 10);
+      if (boyId > 0) {
+        whereClauses.push('d.delivery_boy_id = ?');
+        params.push(boyId);
+      }
+    }
+    if (filters.status === 'open') {
+      whereClauses.push('d.resolved_at IS NULL');
+    } else if (filters.status === 'resolved') {
+      whereClauses.push('d.resolved_at IS NOT NULL');
+    }
+    // status='all' or unset: no extra condition
+
+    const whereSQL = whereClauses.join(' AND ');
+
+    const issues = db.prepare(`
+      SELECT
+        d.id, d.delivery_date, d.status, d.issue_reason, d.marked_at,
+        d.resolved_at, d.resolved_note,
+        c.code AS customer_code, c.name AS customer_name,
+        db.name AS boy_name, db.id AS boy_id
+      FROM deliveries d
+      JOIN customers c ON c.id = d.customer_id
+      JOIN delivery_boys db ON db.id = d.delivery_boy_id
+      WHERE ${whereSQL}
+      ORDER BY d.delivery_date DESC, d.marked_at DESC
+    `).all(...params);
+
+    const deliveryBoys = db.prepare(
+      "SELECT id, name FROM delivery_boys WHERE status = 'active' ORDER BY name ASC"
+    ).all();
+
+    const flash = req.session.flash || null;
+    req.session.flash = null;
+
+    renderView(res, 'admin/issues', {
+      issues: issues || [],
+      deliveryBoys: deliveryBoys || [],
+      filters,
+      flash,
+      activePage: 'issues',
+    });
+  });
+
+  // ── Resolve issue ──────────────────────────────────────────────────
+
+  app.post('/admin/issues/:id/resolve', requireAuth, (req, res) => {
+    const issueId = parseInt(req.params.id, 10);
+    const resolvedNote = req.body.resolved_note;
+    const queryParams = new URLSearchParams(
+      Object.entries(req.query).filter(([_, v]) => v)
+    ).toString();
+    const redirectPath = '/admin/issues' + (queryParams ? '?' + queryParams : '');
+
+    // Guard 1: Invalid ID (NaN)
+    if (isNaN(issueId)) {
+      req.session.flash = { type: 'error', message: 'Invalid issue ID.' };
+      return res.redirect(redirectPath);
+    }
+
+    // Guard 2: Missing resolution note
+    if (!resolvedNote || !resolvedNote.trim()) {
+      req.session.flash = { type: 'error', message: 'Resolution note is required.' };
+      return res.redirect(redirectPath);
+    }
+
+    // Fetch the delivery first
+    const delivery = db.prepare('SELECT * FROM deliveries WHERE id = ?').get(issueId);
+
+    // Guard 3: Not found
+    if (!delivery) {
+      req.session.flash = { type: 'error', message: 'Delivery not found.' };
+      return res.redirect(redirectPath);
+    }
+
+    // Guard 4: Not marked as issue
+    if (delivery.status !== 'issue') {
+      req.session.flash = { type: 'error', message: 'Delivery is not marked as an issue.' };
+      return res.redirect(redirectPath);
+    }
+
+    // Guard 5: Already resolved
+    if (delivery.resolved_at) {
+      req.session.flash = { type: 'error', message: 'Issue is already resolved.' };
+      return res.redirect(redirectPath);
+    }
+
+    // Double-check: WHERE resolved_at IS NULL ensures only first concurrent resolve succeeds
+    const info = db.prepare(`
+      UPDATE deliveries
+      SET resolved_at = datetime('now'), resolved_note = ?
+      WHERE id = ? AND status = 'issue' AND resolved_at IS NULL
+    `).run(resolvedNote.trim(), issueId);
+
+    if (info.changes === 0) {
+      req.session.flash = { type: 'error', message: 'Unable to resolve issue. It may have been resolved already.' };
+    } else {
+      req.session.flash = { type: 'success', message: 'Issue resolved successfully.' };
+    }
+
+    res.redirect(redirectPath);
+  });
+
   // ── Payments page ─────────────────────────────────────────────────
 
   app.get('/admin/payments', requireAuth, (req, res) => {

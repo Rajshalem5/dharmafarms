@@ -142,6 +142,20 @@ function seedDeliveries(db) {
   insertDelivery.run(3, 2, 'pending', null);
 }
 
+function seedIssues(db) {
+  const insertDelivery = db.prepare(
+    `INSERT INTO deliveries (customer_id, delivery_boy_id, delivery_date, status, marked_at, issue_reason, resolved_at, resolved_note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  // Unresolved issues
+  insertDelivery.run(1, 1, dateOffset(0), 'issue', '06:15', 'Dog barking at gate', null, null);
+  insertDelivery.run(2, 1, dateOffset(0), 'issue', '06:20', 'Customer not home', null, null);
+  // Resolved issue
+  insertDelivery.run(3, 2, dateOffset(-1), 'issue', '06:10', 'Wrong address', '2026-07-02T07:00:00', 'Address corrected');
+  // Non-issue delivery (should not appear in issues list)
+  insertDelivery.run(4, 2, dateOffset(0), 'delivered', '06:25', null, null, null);
+}
+
 // ─── Express app factory ─────────────────────────────────────────
 
 function createApp(db, adminPassword) {
@@ -1828,6 +1842,304 @@ describe('routes/admin.js — setupAdminRoutes', () => {
         assert.strictEqual(res.status, 400);
 
         csvDb.close();
+      });
+    });
+
+    // ── GET /admin/issues ───────────────────────────────────────────
+
+    describe('GET /admin/issues — issue tracking board', () => {
+      it('returns 200 and shows all unresolved issues by default', async () => {
+        const issDb = createTestDb();
+        seedDeliveryBoys(issDb);
+        seedCustomers(issDb);
+        seedIssues(issDb);
+        const issApp = createApp(issDb, 'admin123');
+
+        const loginRes = await postForm(issApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(issApp, 'GET', '/admin/issues', { cookie });
+        assert.strictEqual(res.status, 200);
+        assert.match(res.headers['content-type'], /html/);
+        // Should show unresolved issue reasons
+        assert.ok(res.body.includes('Dog barking'));
+        assert.ok(res.body.includes('Customer not home'));
+        // Should also show resolved issues since default is 'all'
+        assert.ok(res.body.includes('Address corrected'));
+        issDb.close();
+      });
+
+      it('filters by status=open (unresolved only)', async () => {
+        const issDb = createTestDb();
+        seedDeliveryBoys(issDb);
+        seedCustomers(issDb);
+        seedIssues(issDb);
+        const issApp = createApp(issDb, 'admin123');
+
+        const loginRes = await postForm(issApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(issApp, 'GET', '/admin/issues?status=open', { cookie });
+        assert.strictEqual(res.status, 200);
+        assert.ok(res.body.includes('Dog barking'));
+        assert.ok(res.body.includes('Customer not home'));
+        // Resolved issue should not appear
+        assert.ok(!res.body.includes('Address corrected'));
+        issDb.close();
+      });
+
+      it('filters by status=resolved (only resolved)', async () => {
+        const issDb = createTestDb();
+        seedDeliveryBoys(issDb);
+        seedCustomers(issDb);
+        seedIssues(issDb);
+        const issApp = createApp(issDb, 'admin123');
+
+        const loginRes = await postForm(issApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(issApp, 'GET', '/admin/issues?status=resolved', { cookie });
+        assert.strictEqual(res.status, 200);
+        assert.ok(res.body.includes('Address corrected'));
+        // Unresolved should not appear
+        assert.ok(!res.body.includes('Dog barking'));
+        assert.ok(!res.body.includes('Customer not home'));
+        issDb.close();
+      });
+
+      it('filters by delivery boy', async () => {
+        const issDb = createTestDb();
+        seedDeliveryBoys(issDb);
+        seedCustomers(issDb);
+        seedIssues(issDb);
+        const issApp = createApp(issDb, 'admin123');
+
+        const loginRes = await postForm(issApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        // Boy 1 (Raju) has 2 issues; Boy 2 (Vijay) has 1 resolved issue
+        const res = await request(issApp, 'GET', '/admin/issues?delivery_boy_id=1', { cookie });
+        assert.strictEqual(res.status, 200);
+        assert.ok(res.body.includes('Dog barking'));
+        assert.ok(res.body.includes('Raju'));
+        issDb.close();
+      });
+
+      it('filters by date range', async () => {
+        const issDb = createTestDb();
+        seedDeliveryBoys(issDb);
+        seedCustomers(issDb);
+        seedIssues(issDb);
+        const issApp = createApp(issDb, 'admin123');
+
+        const loginRes = await postForm(issApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const yesterday = dateOffset(-1);
+        const today = dateOffset(0);
+        const res = await request(issApp, 'GET', `/admin/issues?date_from=${yesterday}&date_to=${today}`, { cookie });
+        assert.strictEqual(res.status, 200);
+        assert.ok(res.body.includes('Dog barking'));
+        assert.ok(res.body.includes('Address corrected'));
+        issDb.close();
+      });
+
+      it('shows empty state when no issues match filters', async () => {
+        const issDb = createTestDb();
+        seedDeliveryBoys(issDb);
+        seedCustomers(issDb);
+        // No issues seeded
+        const issApp = createApp(issDb, 'admin123');
+
+        const loginRes = await postForm(issApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(issApp, 'GET', '/admin/issues', { cookie });
+        assert.strictEqual(res.status, 200);
+        // Should show empty state message
+        assert.ok(res.body.includes('No issues reported') || res.body.includes('smoothly'));
+        issDb.close();
+      });
+    });
+
+    // ── POST /admin/issues/:id/resolve ──────────────────────────────
+
+    describe('POST /admin/issues/:id/resolve — resolve an issue', () => {
+      it('resolves an open issue successfully', async () => {
+        const issDb = createTestDb();
+        seedDeliveryBoys(issDb);
+        seedCustomers(issDb);
+        seedIssues(issDb);
+        const issApp = createApp(issDb, 'admin123');
+
+        const loginRes = await postForm(issApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        // Find the open issue ID (customer_id=1, status=issue, resolved_at IS NULL)
+        const issue = issDb.prepare(
+          "SELECT id FROM deliveries WHERE status = 'issue' AND resolved_at IS NULL LIMIT 1"
+        ).get();
+        assert.ok(issue, 'There should be an unresolved issue');
+
+        const res = await postForm(issApp, `/admin/issues/${issue.id}/resolve`, {
+          resolved_note: 'Called customer, all good now',
+        }, cookie);
+
+        assert.strictEqual(res.status, 302);
+
+        // Verify DB was updated
+        const updated = issDb.prepare('SELECT * FROM deliveries WHERE id = ?').get(issue.id);
+        assert.ok(updated.resolved_at, 'resolved_at should be set');
+        assert.strictEqual(updated.resolved_note, 'Called customer, all good now');
+
+        issDb.close();
+      });
+
+      it('rejects missing resolution note', async () => {
+        const issDb = createTestDb();
+        seedDeliveryBoys(issDb);
+        seedCustomers(issDb);
+        seedIssues(issDb);
+        const issApp = createApp(issDb, 'admin123');
+
+        const loginRes = await postForm(issApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const issue = issDb.prepare(
+          "SELECT id FROM deliveries WHERE status = 'issue' AND resolved_at IS NULL LIMIT 1"
+        ).get();
+        assert.ok(issue);
+
+        // Empty note
+        const res = await postForm(issApp, `/admin/issues/${issue.id}/resolve`, {
+          resolved_note: '',
+        }, cookie);
+
+        assert.strictEqual(res.status, 302);
+
+        // Verify DB was NOT updated
+        const unchanged = issDb.prepare(
+          'SELECT * FROM deliveries WHERE id = ?'
+        ).get(issue.id);
+        assert.strictEqual(unchanged.resolved_at, null);
+
+        issDb.close();
+      });
+
+      it('rejects resolving an already-resolved issue', async () => {
+        const issDb = createTestDb();
+        seedDeliveryBoys(issDb);
+        seedCustomers(issDb);
+        seedIssues(issDb);
+        const issApp = createApp(issDb, 'admin123');
+
+        const loginRes = await postForm(issApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        // Delivery id 3 is already resolved
+        const res = await postForm(issApp, '/admin/issues/3/resolve', {
+          resolved_note: 'Trying again',
+        }, cookie);
+
+        assert.strictEqual(res.status, 302);
+
+        // resolved_at should remain unchanged
+        const unchanged = issDb.prepare('SELECT * FROM deliveries WHERE id = 3').get();
+        assert.strictEqual(unchanged.resolved_note, 'Address corrected');
+
+        issDb.close();
+      });
+
+      it('rejects non-existent delivery ID', async () => {
+        const issDb = createTestDb();
+        seedDeliveryBoys(issDb);
+        seedCustomers(issDb);
+        seedIssues(issDb);
+        const issApp = createApp(issDb, 'admin123');
+
+        const loginRes = await postForm(issApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await postForm(issApp, '/admin/issues/999/resolve', {
+          resolved_note: 'Does not exist',
+        }, cookie);
+
+        assert.strictEqual(res.status, 302);
+
+        issDb.close();
+      });
+
+      it('rejects invalid issue ID (NaN)', async () => {
+        const issDb = createTestDb();
+        seedDeliveryBoys(issDb);
+        seedCustomers(issDb);
+        seedIssues(issDb);
+        const issApp = createApp(issDb, 'admin123');
+
+        const loginRes = await postForm(issApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await postForm(issApp, '/admin/issues/abc/resolve', {
+          resolved_note: 'Invalid',
+        }, cookie);
+
+        assert.strictEqual(res.status, 302);
+
+        issDb.close();
+      });
+
+      it('preserves filter query params on redirect after resolve', async () => {
+        const issDb = createTestDb();
+        seedDeliveryBoys(issDb);
+        seedCustomers(issDb);
+        seedIssues(issDb);
+        const issApp = createApp(issDb, 'admin123');
+
+        const loginRes = await postForm(issApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const issue = issDb.prepare(
+          "SELECT id FROM deliveries WHERE status = 'issue' AND resolved_at IS NULL LIMIT 1"
+        ).get();
+        assert.ok(issue);
+
+        const res = await request(issApp, 'POST', `/admin/issues/${issue.id}/resolve?status=open&delivery_boy_id=1`, {
+          body: 'resolved_note=Fixed+it',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          cookie,
+          followRedirect: false,
+        });
+
+        assert.strictEqual(res.status, 302);
+        // Redirect should contain the original filter params
+        assert.match(res.headers.location, /status=open/);
+        assert.match(res.headers.location, /delivery_boy_id=1/);
+
+        issDb.close();
       });
     });
   });
