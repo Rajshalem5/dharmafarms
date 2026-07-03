@@ -75,10 +75,9 @@
               <td class="max-w-xs truncate"><%= c.address %></td>
               <td><%= c.delivery_boy_name || '-' %></td>
               <td><%= (c.monthly_rate / 100).toFixed(2) %></td>
-              <td class="font-mono text-xs">
+              <td class="font-mono text-xs text-center">
                 <% if (c.token) { %>
-                  <span><%= c.token.substring(0, 16) %>…</span>
-                  <button onclick="copyToken(this, '<%= c.token %>')" data-token="<%= c.token %>" class="text-blue-600 hover:text-blue-800 ml-1 cursor-pointer text-xs" title="Copy token">📋</button>
+                  <button onclick="copyToken(this, '<%= c.token %>')" data-token="<%= c.token %>" class="text-blue-600 hover:text-blue-800 cursor-pointer text-sm" title="Copy token">📋</button>
                 <% } else { %>
                   <span class="text-gray-400">—</span>
                 <% } %>
