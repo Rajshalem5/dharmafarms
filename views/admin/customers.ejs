@@ -61,6 +61,7 @@
             <th>Address</th>
             <th>Delivery Boy</th>
             <th>Rate (₹)</th>
+            <th>Token</th>
             <th>Status</th>
             <th>Actions</th>
           </tr>
@@ -74,6 +75,14 @@
               <td class="max-w-xs truncate"><%= c.address %></td>
               <td><%= c.delivery_boy_name || '-' %></td>
               <td><%= (c.monthly_rate / 100).toFixed(2) %></td>
+              <td class="font-mono text-xs">
+                <% if (c.token) { %>
+                  <span><%= c.token.substring(0, 16) %>…</span>
+                  <button onclick="copyToken(this, '<%= c.token %>')" data-token="<%= c.token %>" class="text-blue-600 hover:text-blue-800 ml-1 cursor-pointer text-xs" title="Copy token">📋</button>
+                <% } else { %>
+                  <span class="text-gray-400">—</span>
+                <% } %>
+              </td>
               <td><span class="badge-<%= c.status %>"><%= c.status %></span></td>
               <td>
                 <div class="flex gap-2">
@@ -152,6 +161,21 @@ function editCustomer(id) {
 }
 function closeEdit() {
   document.getElementById('editModal').style.display = 'none';
+}
+function copyToken(btn, token) {
+  navigator.clipboard.writeText(token).then(function() {
+    var orig = btn.textContent;
+    btn.textContent = '✓';
+    setTimeout(function() { btn.textContent = orig; }, 1500);
+  }).catch(function() {
+    // Fallback: select from a temp input
+    var inp = document.createElement('input');
+    inp.value = token;
+    document.body.appendChild(inp);
+    inp.select();
+    document.execCommand('copy');
+    document.body.removeChild(inp);
+  });
 }
 document.getElementById('editModal').addEventListener('click', function(e) {
   if (e.target === this) closeEdit();
