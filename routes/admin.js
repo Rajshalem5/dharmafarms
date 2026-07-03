@@ -72,7 +72,7 @@ function setupAdminRoutes(app, db) {
     res.render('login', { error });
   });
 
-  app.post('/admin/login', (req, res) => {
+  app.post('/admin/login', app.locals.loginLimiter, (req, res) => {
     const { password } = req.body;
 
     if (!password) {

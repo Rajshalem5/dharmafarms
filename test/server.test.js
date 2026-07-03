@@ -223,6 +223,27 @@ describe('server.js — createApp', () => {
       assert.strictEqual(res.status, 404);
     });
 
+    it('mounts /admin/issues route — redirects to login when unauthenticated (not 404)', async () => {
+      const res = await request(server, 'GET', '/admin/issues');
+      // Should redirect to login (302), not return 404
+      assert.strictEqual(res.status, 302);
+      assert.ok(res.headers.location === '/admin/login' || res.headers.location.startsWith('/admin/login'));
+    });
+
+    it('sets Helmet security headers', async () => {
+      const res = await request(server, 'GET', '/health');
+      assert.ok(res.headers['x-content-type-options'], 'Should have X-Content-Type-Options');
+      assert.strictEqual(res.headers['x-content-type-options'], 'nosniff');
+      assert.ok(res.headers['x-frame-options'], 'Should have X-Frame-Options');
+      assert.strictEqual(res.headers['x-frame-options'], 'SAMEORIGIN');
+    });
+
+    it('sanitizes token URLs without crashing', async () => {
+      const fakeToken = 'a'.repeat(64);
+      const res = await request(server, 'GET', '/my-account/' + fakeToken);
+      assert.strictEqual(res.status, 404, 'Should return 404 (route does not exist yet)');
+    });
+
     it('configures express-session middleware', async () => {
       // POST to login should set a session cookie or redirect
       const res = await request(server, 'POST', '/admin/login', {
@@ -273,6 +294,31 @@ describe('server.js — createApp', () => {
         assert.match(res.headers['content-type'], /json/);
       } finally {
         errServer.close();
+      }
+    });
+  });
+
+  describe('rate limiting', () => {
+    it('limits POST /admin/login to 5 attempts per minute per IP', async () => {
+      const ctx = await startServerOnRandomPort();
+      const srv = ctx.server;
+      const d = ctx.db;
+
+      try {
+        for (let i = 0; i < 6; i++) {
+          const res = await request(srv, 'POST', '/admin/login', {
+            body: 'password=wrong',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          });
+          if (i < 5) {
+            assert.strictEqual(res.status, 302, `Request ${i + 1} should return 302`);
+          } else {
+            assert.strictEqual(res.status, 429, `Request ${i + 1} should return 429 (rate limited)`);
+          }
+        }
+      } finally {
+        srv.close();
+        d.close();
       }
     });
   });

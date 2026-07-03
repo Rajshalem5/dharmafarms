@@ -78,6 +78,10 @@ express, ejs, better-sqlite3, node-telegram-bot-api, node-cron, express-session,
 - **deliveries** — One row per customer per day (status: pending/delivered/skipped/issue/arriving, unique on customer_id + delivery_date)
 - **payments** — Append-only ledger (amount in paise, mode: cash/upi/bank_transfer)
 
+## Plan Files
+
+All implementation plans MUST be saved to `.claude/plans/` — never to the project root. This includes `.claude/plans/plan-post-test-fixes.md`, `.claude/plans/plan-phase2.md`, `.claude/plans/plan-delivery-boys.md`, `.claude/plans/plan-backup.md`, `.claude/plans/plan-scheduler.md`, `.claude/plans/plan-security.md`, and any future plans.
+
 ## Key Architecture Decisions (from ARCHITECTURE.md)
 
 - **Telegram over WhatsApp Business API** — saves ₹18,000-36,000/year

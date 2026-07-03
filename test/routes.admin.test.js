@@ -12,6 +12,7 @@ const express = require('express');
 const session = require('express-session');
 const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
+const rateLimit = require('express-rate-limit');
 
 // ─── Test database factory ────────────────────────────────────────
 
@@ -174,6 +175,13 @@ function createApp(db, adminPassword) {
   app.set('views', path.join(__dirname, '..', 'views'));
 
   app.locals.db = db;
+  app.locals.loginLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many login attempts. Try again in a minute.' },
+  });
   app.locals.adminPasswordHash = adminPassword
     ? bcrypt.hashSync(adminPassword, 10)
     : null;

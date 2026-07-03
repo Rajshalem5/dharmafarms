@@ -10,6 +10,7 @@ const Database = require('better-sqlite3');
 
 // This import will fail until services/subscription.js exists (RED)
 const {
+  autoExpireSubscriptions,
   getBalance,
   getPaymentLedger,
   recordPayment,
@@ -402,5 +403,51 @@ describe('getBalance', () => {
     const balance = getBalance(db, 1);
     assert.strictEqual(balance.subscriptionRemaining, null);
     assert.strictEqual(balance.isOverdue, false);
+  });
+});
+
+describe('autoExpireSubscriptions', () => {
+  let db;
+
+  afterEach(() => {
+    if (db) db.close();
+  });
+
+  it('expires subscriptions with past end_date', () => {
+    db = createTestDb();
+    seedSimpleData(db);
+
+    // Create a subscription with end_date in the past
+    db.prepare(
+      `INSERT INTO subscriptions (customer_id, start_date, end_date, total_days, remaining_days, status)
+       VALUES (?, date('now', '-60 days'), date('now', '-1 days'), 30, 0, 'active')`
+    ).run(1);
+
+    const changes = autoExpireSubscriptions(db);
+    assert.strictEqual(changes, 1, 'Should expire 1 subscription');
+
+    const expired = db.prepare(
+      "SELECT status FROM subscriptions WHERE end_date = date('now', '-1 days')"
+    ).get();
+    assert.strictEqual(expired.status, 'expired');
+  });
+
+  it('does not expire subscriptions with future end_date', () => {
+    db = createTestDb();
+    seedSimpleData(db);
+
+    // Create a subscription with end_date in the future (this won't expire)
+    db.prepare(
+      `INSERT INTO subscriptions (customer_id, start_date, end_date, total_days, remaining_days, status)
+       VALUES (?, date('now', '-5 days'), date('now', '+25 days'), 30, 25, 'active')`
+    ).run(1);
+
+    const changes = autoExpireSubscriptions(db);
+    assert.strictEqual(changes, 0, 'Should not expire any subscriptions');
+
+    const active = db.prepare(
+      "SELECT status FROM subscriptions WHERE end_date = date('now', '+25 days')"
+    ).get();
+    assert.strictEqual(active.status, 'active');
   });
 });

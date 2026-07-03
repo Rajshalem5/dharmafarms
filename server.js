@@ -20,6 +20,8 @@ const express = require('express');
 const path = require('path');
 const session = require('express-session');
 const { TelegramBot } = require('node-telegram-bot-api');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
 const { initializeDatabase, getDb, getAdminPasswordHash } = require('./db');
 const { setupAdminRoutes } = require('./routes/admin');
@@ -146,6 +148,28 @@ function stopCronTasks() {
 function createApp(db) {
   const app = express();
 
+  // ── Security headers (Helmet) ──────────────────────────────────────
+  // Must be the first middleware so headers are set before any route processing.
+
+  app.use(helmet());
+
+  // ── Log sanitization ──────────────────────────────────────────────
+  /**
+   * Replaces /my-account/<64-char-hex> with /my-account/[REDACTED]
+   * so customer tokens never appear in server logs or error output.
+   * Route handlers must read the token from req.params, not req.originalUrl.
+   */
+  app.use((req, res, next) => {
+    if (req.originalUrl && /\/my-account\/[a-f0-9]{64}/i.test(req.originalUrl)) {
+      req.originalUrl = req.originalUrl.replace(
+        /(\/my-account\/)[a-f0-9]{64}/gi,
+        '$1[REDACTED]'
+      );
+      req.url = req.originalUrl;
+    }
+    next();
+  });
+
   // ── Body parsing ──────────────────────────────────────────────────
 
   app.use(express.urlencoded({ extended: true }));
@@ -178,6 +202,16 @@ function createApp(db) {
       sameSite: 'lax',
     },
   }));
+
+  // ── Rate limiting ──────────────────────────────────────────────────
+  const loginLimiter = rateLimit({
+    windowMs: 60 * 1000,  // 1 minute window
+    max: 5,                // 5 attempts per window per IP
+    standardHeaders: true, // Return rate limit info in RateLimit-* headers
+    legacyHeaders: false,  // Disable X-RateLimit-* headers
+    message: { error: 'Too many login attempts. Try again in a minute.' },
+  });
+  app.locals.loginLimiter = loginLimiter;
 
   // ── Expose password hash to routes ────────────────────────────────
 

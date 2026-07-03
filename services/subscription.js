@@ -8,6 +8,23 @@
 const VALID_MODES = ['cash', 'upi', 'bank_transfer'];
 
 /**
+ * Auto-expires subscriptions whose end_date has passed.
+ *
+ * Updates status from 'active' to 'expired' for all subscriptions
+ * where end_date is before today.
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @returns {number} — number of rows updated
+ */
+function autoExpireSubscriptions(db) {
+  const info = db.prepare(`
+    UPDATE subscriptions SET status = 'expired'
+    WHERE status = 'active' AND end_date IS NOT NULL AND end_date < date('now')
+  `).run();
+  return info.changes;
+}
+
+/**
  * Returns the valid payment modes for dropdown rendering.
  * @returns {string[]}
  */
@@ -147,6 +164,7 @@ function getBalance(db, customerId) {
 }
 
 module.exports = {
+  autoExpireSubscriptions,
   getBalance,
   getPaymentLedger,
   recordPayment,

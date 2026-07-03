@@ -4,6 +4,7 @@
  * Handles the daily delivery dispatch: generating rows for all active customers
  * with active subscriptions, idempotently, in a transaction.
  */
+const { autoExpireSubscriptions } = require('./subscription');
 
 /**
  * Checks whether a dispatch already exists for today.
@@ -30,6 +31,8 @@ function dispatchExistsForToday(db) {
  * @returns {{ generated: boolean, count: number }}
  */
 function generateDispatch(db) {
+  autoExpireSubscriptions(db);
+
   if (dispatchExistsForToday(db)) {
     return { generated: false, count: 0 };
   }
@@ -92,6 +95,8 @@ function getTodaysRouteForBoy(db, deliveryBoyId) {
  * @returns {{ generated: boolean, count: number }}
  */
 function regenerateDispatch(db) {
+  autoExpireSubscriptions(db);
+
   const deleteToday = db.prepare(
     "DELETE FROM deliveries WHERE delivery_date = date('now')"
   );

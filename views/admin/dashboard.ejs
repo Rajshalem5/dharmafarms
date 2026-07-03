@@ -17,18 +17,39 @@
       <div class="stat-card"><div class="stat-card-border" style="background:#7c3aed"></div><div class="stat-card-body"><p class="stat-card-count"><%= activeCustomers %></p><p class="stat-card-label">Active Customers</p></div></div>
     </div>
 
-    <% boyStats.forEach(function(boy) { %>
-      <div class="bg-white rounded-xl shadow-sm p-5 mb-4">
-        <h3 class="font-semibold text-[#1B4332] mb-3"><%= boy.boy_name %></h3>
-        <div class="flex flex-wrap gap-3 text-sm">
-          <span class="px-3 py-1 rounded-full bg-green-100 text-green-800">Delivered: <%= boy.delivered %></span>
-          <span class="px-3 py-1 rounded-full bg-yellow-100 text-yellow-800">Skipped: <%= boy.skipped %></span>
-          <span class="px-3 py-1 rounded-full bg-red-100 text-red-800">Issues: <%= boy.issue %></span>
-          <span class="px-3 py-1 rounded-full bg-gray-100 text-gray-800">Pending: <%= boy.pending %></span>
-          <span class="px-3 py-1 rounded-full bg-blue-100 text-blue-800">Arriving: <%= boy.arriving %></span>
+    <% if (boyStats.length > 0) { %>
+      <div class="bg-white rounded-xl shadow-sm overflow-hidden mt-6">
+        <div class="px-5 py-4 border-b border-gray-100">
+          <h2 class="text-lg font-semibold text-[#1B4332]">Per Delivery Boy</h2>
         </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Delivery Boy</th>
+              <th>Total</th>
+              <th>Delivered</th>
+              <th>Skipped</th>
+              <th>Issues</th>
+              <th>Arriving</th>
+              <th>Pending</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% boyStats.forEach(function(b) { %>
+              <tr>
+                <td class="font-medium"><%= b.boy_name %></td>
+                <td><%= b.total %></td>
+                <td class="text-green-600 font-medium"><%= b.delivered %></td>
+                <td class="text-amber-600"><%= b.skipped %></td>
+                <td class="text-red-600"><%= b.issue %></td>
+                <td class="text-blue-600"><%= b.arriving %></td>
+                <td class="text-gray-500"><%= b.pending %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
       </div>
-    <% }); %>
+    <% } %>
   <% } %>
 
   <div class="flex gap-3 mt-6">
