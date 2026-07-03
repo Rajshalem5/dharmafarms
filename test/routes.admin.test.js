@@ -515,6 +515,40 @@ describe('routes/admin.js — setupAdminRoutes', () => {
         assert.strictEqual(res.status, 200);
         emptyDb.close();
       });
+
+      it('shows token column with truncated display and copy button', async () => {
+        const tokDb = createTestDb();
+        seedDeliveryBoys(tokDb);
+        seedCustomers(tokDb);
+        // Add a customer with a realistic 64-char hex token to test truncation
+        const longToken = 'abcdef0123456789' + 'deadbeefcafebabe' + '1234567890abcdef' + 'fedcba0987654321';
+        tokDb.prepare(
+          `INSERT INTO customers (id, code, name, phone, address, delivery_boy_id, monthly_rate, status, token)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(5, 'C005', 'LongToken', '9000000005', '456 Test St', 1, 30000, 'active', longToken);
+
+        const tokApp = createApp(tokDb, 'admin123');
+        const loginRes = await postForm(tokApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(tokApp, 'GET', '/admin/customers', { cookie });
+        assert.strictEqual(res.status, 200);
+
+        // 1. Token column header exists after Rate column
+        assert.match(res.body, /<th>Token<\/th>/);
+
+        // 2. First 16 chars of the long token are displayed
+        const first16 = longToken.substring(0, 16);
+        assert.ok(res.body.includes(first16), 'First 16 chars of token should appear in the rendered HTML');
+
+        // 3. Copy button exists with full token in a data attribute
+        assert.match(res.body, /data-token="/);
+        assert.ok(res.body.includes(longToken), 'Full token should appear in a data attribute on the copy button');
+
+        tokDb.close();
+      });
     });
 
     // ── POST /admin/customers (Add customer) ─────────────────────
