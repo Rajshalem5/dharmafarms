@@ -170,6 +170,9 @@ function openReassign(id, name) {
       document.getElementById('reassignForm').action = '/admin/delivery-boys/' + id + '/reassign';
       document.getElementById('reassignTargetBoy').value = '';
       document.getElementById('reassignModal').style.display = 'flex';
+    })
+    .catch(function(err) {
+      console.error('Failed to load customer count:', err);
     });
 }
 function closeReassign() {

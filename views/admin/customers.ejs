@@ -61,6 +61,7 @@
             <th>Address</th>
             <th>Delivery Boy</th>
             <th>Rate (₹)</th>
+            <th>Rem. Days</th>
             <th>Token</th>
             <th>Status</th>
             <th>Actions</th>
@@ -75,6 +76,9 @@
               <td class="max-w-xs truncate"><%= c.address %></td>
               <td><%= c.delivery_boy_name || '-' %></td>
               <td><%= (c.monthly_rate / 100).toFixed(2) %></td>
+              <td class="<%= c.remaining_days !== null && c.remaining_days <= 3 ? 'text-red-600 font-medium' : '' %> tabular-nums">
+                <%= c.remaining_days !== null ? c.remaining_days : '—' %>
+              </td>
               <td class="font-mono text-xs text-center">
                 <% if (c.token) { %>
                   <button onclick="copyToken(this, '<%= c.token %>')" data-token="<%= c.token %>" class="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs cursor-pointer relative" title="Copy token">

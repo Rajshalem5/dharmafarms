@@ -554,6 +554,10 @@ function setupAdminRoutes(app, db) {
       "SELECT COUNT(*) AS count FROM customers WHERE delivery_boy_id = ? AND status = 'active'"
     ).get(boyId);
 
+    if (!row) {
+      return res.json({ count: 0 });
+    }
+
     res.json({ count: row.count });
   });
 

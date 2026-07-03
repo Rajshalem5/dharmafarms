@@ -55,6 +55,7 @@ function createTestDb() {
       remaining_days INTEGER NOT NULL DEFAULT 30,
       status VARCHAR(20) DEFAULT 'active',
       paused_until TEXT,
+	      paused_from TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
 
@@ -195,12 +196,12 @@ describe('routes/customer.js — setupCustomerRoutes', () => {
       const res = await request(app, 'GET', '/my-account/tok_ram_001');
 
       assert.strictEqual(res.status, 200);
-      assert.match(res.body, /"_ok":true/);
-      assert.match(res.body, /"name":"Ram"/);
-      assert.match(res.body, /"code":"C001"/);
-      assert.match(res.body, /"boy":"Raju"/);
-      assert.match(res.body, /"status":"active"/);
-      assert.match(res.body, /"remaining":20/);
+      assert.match(res.body, /Dharma Farms/);
+      assert.match(res.body, />Ram</);
+      assert.match(res.body, />C001</);
+      assert.match(res.body, />Raju</);
+      assert.match(res.body, /Active/);
+      assert.match(res.body, />20</);
 
       db.close();
     });
@@ -213,7 +214,7 @@ describe('routes/customer.js — setupCustomerRoutes', () => {
       const res = await request(app, 'GET', '/my-account/invalid_token_here');
 
       assert.strictEqual(res.status, 200);
-      assert.match(res.body, /"_error":true/);
+      assert.match(res.body, /Account not found/);
 
       db.close();
     });
@@ -227,7 +228,7 @@ describe('routes/customer.js — setupCustomerRoutes', () => {
       const res = await request(app, 'GET', '/my-account/tok_shyam_002');
 
       assert.strictEqual(res.status, 200);
-      assert.match(res.body, /"_error":true/);
+      assert.match(res.body, /Account not found/);
 
       db.close();
     });
@@ -245,7 +246,7 @@ describe('routes/customer.js — setupCustomerRoutes', () => {
       const res = await request(app, 'GET', '/my-account/tok_ram_001');
 
       assert.strictEqual(res.status, 200);
-      assert.match(res.body, /"today":"delivered"/);
+      assert.match(res.body, />Delivered</);
 
       db.close();
     });
@@ -268,9 +269,9 @@ describe('routes/customer.js — setupCustomerRoutes', () => {
       });
 
       assert.strictEqual(res.status, 200);
-      assert.match(res.body, /"_ok":true/);
-      assert.match(res.body, /"pauseSuccess":true/);
-      assert.match(res.body, /"pauseEndDate":"/);
+      assert.match(res.body, /Dharma Farms/);
+      assert.match(res.body, /paused until/i);
+      assert.match(res.body, /\d{4}-\d{2}-\d{2}/);
 
       // Verify DB was updated
       const sub = db.prepare('SELECT * FROM subscriptions WHERE customer_id = 1').get();
@@ -290,7 +291,7 @@ describe('routes/customer.js — setupCustomerRoutes', () => {
       });
 
       assert.strictEqual(res.status, 200);
-      assert.match(res.body, /"_error":true/);
+      assert.match(res.body, /Account not found/);
 
       db.close();
     });
@@ -303,7 +304,7 @@ describe('routes/customer.js — setupCustomerRoutes', () => {
       const res = await postForm(app, '/my-account/tok_ram_001/pause', {});
 
       assert.strictEqual(res.status, 200);
-      assert.match(res.body, /"_error":true/);
+      assert.match(res.body, /Start and end dates are required/);
 
       db.close();
     });
@@ -319,7 +320,7 @@ describe('routes/customer.js — setupCustomerRoutes', () => {
       });
 
       assert.strictEqual(res.status, 200);
-      assert.match(res.body, /"_error":true/);
+      assert.match(res.body, /Account not found/);
 
       db.close();
     });
@@ -337,7 +338,7 @@ describe('routes/customer.js — setupCustomerRoutes', () => {
       });
 
       assert.strictEqual(res.status, 200);
-      assert.match(res.body, /"_error":true/);
+      assert.match(res.body, /Account not found/);
 
       db.close();
     });
@@ -357,7 +358,7 @@ describe('routes/customer.js — setupCustomerRoutes', () => {
       });
 
       assert.strictEqual(res.status, 200);
-      assert.match(res.body, /"_error":true/);
+      assert.match(res.body, /Account not found/);
 
       db.close();
     });
@@ -375,8 +376,8 @@ describe('routes/customer.js — setupCustomerRoutes', () => {
       const res = await postForm(app, '/my-account/tok_ram_001/resume', {});
 
       assert.strictEqual(res.status, 200);
-      assert.match(res.body, /"_ok":true/);
-      assert.match(res.body, /"resumeSuccess":true/);
+      assert.match(res.body, /Dharma Farms/);
+      assert.match(res.body, /resumed/i);
 
       // Verify DB was updated
       const sub = db.prepare('SELECT * FROM subscriptions WHERE customer_id = 1').get();
@@ -394,7 +395,7 @@ describe('routes/customer.js — setupCustomerRoutes', () => {
       const res = await postForm(app, '/my-account/invalid_token/resume', {});
 
       assert.strictEqual(res.status, 200);
-      assert.match(res.body, /"_error":true/);
+      assert.match(res.body, /Account not found/);
 
       db.close();
     });
@@ -407,7 +408,7 @@ describe('routes/customer.js — setupCustomerRoutes', () => {
       const res = await postForm(app, '/my-account/tok_ram_001/resume', {});
 
       assert.strictEqual(res.status, 200);
-      assert.match(res.body, /"_error":true/);
+      assert.match(res.body, /Account not found/);
 
       db.close();
     });
