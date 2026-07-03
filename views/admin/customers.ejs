@@ -81,6 +81,11 @@
                   <form action="/admin/customers/<%= c.id %>/regenerate-token" method="POST" class="inline">
                     <button type="submit" class="text-amber-600 hover:text-amber-800 text-sm cursor-pointer">New Token</button>
                   </form>
+                  <form action="/admin/customers/<%= c.id %>/toggle-status" method="POST" class="inline">
+                    <button type="submit" class="<%= c.status === 'active' ? 'text-red-600 hover:text-red-800' : 'text-green-600 hover:text-green-800' %> text-sm cursor-pointer">
+                      <%= c.status === 'active' ? 'Deactivate' : 'Activate' %>
+                    </button>
+                  </form>
                 </div>
               </td>
             </tr>

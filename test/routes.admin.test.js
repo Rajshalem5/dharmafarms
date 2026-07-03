@@ -701,7 +701,80 @@ describe('routes/admin.js — setupAdminRoutes', () => {
       });
     });
 
-    // ── GET /admin/dispatch ─────────────────────────────────────
+    // ── POST /admin/customers/:id/toggle-status ──────────────────
+
+	    describe('POST /admin/customers/:id/toggle-status', () => {
+	      it('toggles active customer to inactive', async () => {
+	        const togDb = createTestDb();
+	        seedDeliveryBoys(togDb);
+	        seedCustomers(togDb);
+	        const togApp = createApp(togDb, 'admin123');
+
+	        const loginRes = await postForm(togApp, '/admin/login', { password: 'admin123' });
+	        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+	          ? loginRes.headers['set-cookie'].join('; ')
+	          : loginRes.headers['set-cookie'];
+
+	        assert.strictEqual(
+	          togDb.prepare('SELECT status FROM customers WHERE id = 1').get().status,
+	          'active'
+	        );
+
+	        await postForm(togApp, '/admin/customers/1/toggle-status', {}, cookie);
+
+	        assert.strictEqual(
+	          togDb.prepare('SELECT status FROM customers WHERE id = 1').get().status,
+	          'inactive'
+	        );
+
+	        togDb.close();
+	      });
+
+	      it('toggles inactive customer to active', async () => {
+	        const togDb = createTestDb();
+	        seedDeliveryBoys(togDb);
+	        seedCustomers(togDb);
+	        const togApp = createApp(togDb, 'admin123');
+
+	        const loginRes = await postForm(togApp, '/admin/login', { password: 'admin123' });
+	        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+	          ? loginRes.headers['set-cookie'].join('; ')
+	          : loginRes.headers['set-cookie'];
+
+	        // Customer 4 (Sita) is seeded as 'inactive'
+	        assert.strictEqual(
+	          togDb.prepare('SELECT status FROM customers WHERE id = 4').get().status,
+	          'inactive'
+	        );
+
+	        await postForm(togApp, '/admin/customers/4/toggle-status', {}, cookie);
+
+	        assert.strictEqual(
+	          togDb.prepare('SELECT status FROM customers WHERE id = 4').get().status,
+	          'active'
+	        );
+
+	        togDb.close();
+	      });
+
+	      it('returns flash error for non-existent customer', async () => {
+	        const togDb = createTestDb();
+	        const togApp = createApp(togDb, 'admin123');
+
+	        const loginRes = await postForm(togApp, '/admin/login', { password: 'admin123' });
+	        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+	          ? loginRes.headers['set-cookie'].join('; ')
+	          : loginRes.headers['set-cookie'];
+
+	        const res = await postForm(togApp, '/admin/customers/999/toggle-status', {}, cookie);
+
+	        assert.strictEqual(res.status, 302);
+
+	        togDb.close();
+	      });
+	    });
+
+	    // ── GET /admin/dispatch ─────────────────────────────────────
 
     describe('GET /admin/dispatch', () => {
       it('returns 200 and shows dispatch page', async () => {

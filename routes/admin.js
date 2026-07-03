@@ -301,6 +301,31 @@ function setupAdminRoutes(app, db) {
     res.redirect('/admin/customers');
   });
 
+  // ── Toggle customer status ───────────────────────────────────────
+
+  app.post('/admin/customers/:id/toggle-status', requireAuth, (req, res) => {
+    const customer = db.prepare(
+      'SELECT id, code, name, status FROM customers WHERE id = ?'
+    ).get(req.params.id);
+
+    if (!customer) {
+      req.session.flash = { type: 'error', message: 'Customer not found.' };
+      return res.redirect('/admin/customers');
+    }
+
+    const newStatus = customer.status === 'active' ? 'inactive' : 'active';
+
+    db.prepare("UPDATE customers SET status = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(newStatus, customer.id);
+
+    req.session.flash = {
+      type: 'success',
+      message: `${customer.code} — ${customer.name} is now ${newStatus}.`,
+    };
+
+    res.redirect('/admin/customers');
+  });
+
   // ── Dispatch board ──────────────────────────────────────────────
 
   app.get('/admin/dispatch', requireAuth, (req, res) => {
