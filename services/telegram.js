@@ -22,10 +22,11 @@ function formatStatusLine(delivery) {
   const icon = STATUS_ICONS[delivery.status] || '❓';
   const code = delivery.customer_code;
   const name = delivery.customer_name;
+  const phone = delivery.customer_phone ? ` - ${delivery.customer_phone}` : '';
   const time = delivery.marked_at ? ` (${delivery.marked_at})` : '';
   const reason = delivery.issue_reason ? ` — ${delivery.issue_reason}` : '';
 
-  return `${icon} ${code} - ${name}${time}${reason}`;
+  return `${icon} ${code} - ${name}${phone}${time}${reason}`;
 }
 
 /**

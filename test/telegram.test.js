@@ -19,12 +19,14 @@ const sampleDeliveries = [
   {
     customer_code: 'C001',
     customer_name: 'Ram',
+    customer_phone: '9000000001',
     address: '123 Main St',
     status: 'pending',
   },
   {
     customer_code: 'C002',
     customer_name: 'Shyam',
+    customer_phone: '9000000002',
     address: '456 Oak Ave',
     status: 'delivered',
     marked_at: '06:15',
@@ -32,6 +34,7 @@ const sampleDeliveries = [
   {
     customer_code: 'C003',
     customer_name: 'Gita',
+    customer_phone: '9000000003',
     address: '789 Pine Rd',
     status: 'skipped',
     marked_at: '06:20',
@@ -39,6 +42,7 @@ const sampleDeliveries = [
   {
     customer_code: 'C004',
     customer_name: 'Sita',
+    customer_phone: '9000000004',
     address: '321 Elm St',
     status: 'issue',
     issue_reason: 'No milk required today',
@@ -47,6 +51,7 @@ const sampleDeliveries = [
   {
     customer_code: 'C005',
     customer_name: 'Mohan',
+    customer_phone: '9000000005',
     address: '654 Birch Ln',
     status: 'arriving',
     marked_at: '06:28',
@@ -71,6 +76,9 @@ describe('formatRouteMessage', () => {
     assert.match(result, /C003/);
     assert.match(result, /C004/);
     assert.match(result, /C005/);
+    // Phone numbers should appear in route display
+    assert.match(result, /9000000001/);
+    assert.match(result, /9000000002/);
   });
 
   it('includes status indicators for each delivery', () => {
@@ -140,48 +148,62 @@ describe('buildDeliverySummary', () => {
 
 describe('formatStatusLine', () => {
   it('formats pending delivery', () => {
-    const delivery = { customer_code: 'C001', customer_name: 'Ram', status: 'pending' };
+    const delivery = { customer_code: 'C001', customer_name: 'Ram', customer_phone: '9000000001', status: 'pending' };
     const result = formatStatusLine(delivery);
 
     assert.match(result, /C001/);
     assert.match(result, /Ram/);
+    assert.match(result, /9000000001/);
     assert.match(result, /⏳/);
   });
 
   it('formats delivered delivery', () => {
-    const delivery = { customer_code: 'C001', customer_name: 'Ram', status: 'delivered', marked_at: '06:15' };
+    const delivery = { customer_code: 'C001', customer_name: 'Ram', customer_phone: '9000000001', status: 'delivered', marked_at: '06:15' };
     const result = formatStatusLine(delivery);
 
     assert.match(result, /C001/);
     assert.match(result, /✅/);
+    assert.match(result, /9000000001/);
     assert.match(result, /06:15/);
   });
 
   it('formats skipped delivery', () => {
-    const delivery = { customer_code: 'C002', customer_name: 'Shyam', status: 'skipped', marked_at: '06:20' };
+    const delivery = { customer_code: 'C002', customer_name: 'Shyam', customer_phone: '9000000002', status: 'skipped', marked_at: '06:20' };
     const result = formatStatusLine(delivery);
 
     assert.match(result, /C002/);
     assert.match(result, /⏭️/);
+    assert.match(result, /9000000002/);
   });
 
   it('formats issue delivery with reason', () => {
     const delivery = {
-      customer_code: 'C004', customer_name: 'Sita', status: 'issue',
+      customer_code: 'C004', customer_name: 'Sita', customer_phone: '9000000004', status: 'issue',
       issue_reason: 'No milk required today', marked_at: '06:25',
     };
     const result = formatStatusLine(delivery);
 
     assert.match(result, /C004/);
     assert.match(result, /⚠️/);
+    assert.match(result, /9000000004/);
     assert.match(result, /No milk required/);
   });
 
   it('formats arriving delivery', () => {
-    const delivery = { customer_code: 'C005', customer_name: 'Mohan', status: 'arriving', marked_at: '06:28' };
+    const delivery = { customer_code: 'C005', customer_name: 'Mohan', customer_phone: '9000000005', status: 'arriving', marked_at: '06:28' };
     const result = formatStatusLine(delivery);
 
     assert.match(result, /C005/);
     assert.match(result, /🚚/);
+    assert.match(result, /9000000005/);
+  });
+
+  it('formats delivery without phone', () => {
+    const delivery = { customer_code: 'C006', customer_name: 'Test', status: 'pending' };
+    const result = formatStatusLine(delivery);
+
+    assert.match(result, /C006/);
+    assert.match(result, /Test/);
+    assert.doesNotMatch(result, /\d{10}/);
   });
 });
