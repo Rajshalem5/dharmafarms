@@ -278,6 +278,22 @@ describe('server.js — createApp', () => {
       assert.strictEqual(res.status, 200, 'Should return 200 (customer portal now exists)');
     });
 
+    it('does NOT corrupt req.url — token is preserved in route params', async () => {
+      // Arrange: insert a delivery boy and a customer with a known token
+      const realToken = 'b'.repeat(64);
+      db.prepare("INSERT INTO delivery_boys (name, phone, region, status) VALUES ('Test Boy', '9999999999', 'Test Area', 'active')").run();
+      db.prepare("INSERT INTO customers (code, name, phone, address, delivery_boy_id, monthly_rate, status, token) VALUES ('T001', 'Test Customer', '8888888888', 'Test Address', 1, 3000, 'active', ?)").run(realToken);
+
+      // Act: make a request with the real token
+      const res = await request(server, 'GET', '/my-account/' + realToken);
+
+      // Assert: response should contain the customer's name, proving the token
+      // reached the route handler (not corrupted to [REDACTED] by the middleware)
+      assert.strictEqual(res.status, 200);
+      assert.ok(res.body.includes('Test Customer'),
+        'Response body should contain the customer name — token was NOT corrupted');
+    });
+
     it('configures express-session middleware', async () => {
       // POST to login should set a session cookie or redirect
       const res = await request(server, 'POST', '/admin/login', {
