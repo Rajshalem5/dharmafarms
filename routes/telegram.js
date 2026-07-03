@@ -215,10 +215,11 @@ async function handleDone(bot, chatId, db, boy, args) {
     WHERE customer_id = ? AND status = 'active'
   `).run(delivery.customer_id);
 
-  return bot.sendMessage(
-    chatId,
-    `✅ ${code} — ${delivery.name} marked as delivered at ${timeStr}.`
-  );
+  const reply = `✅ ${code} — ${delivery.name} marked as delivered at ${timeStr}.`;
+  if (allDeliveriesComplete(db, boy.id)) {
+    return bot.sendMessage(chatId, reply + '\n\nAll deliveries completed! Send /finish for route summary.');
+  }
+  return bot.sendMessage(chatId, reply);
 }
 
 /**
@@ -270,10 +271,11 @@ async function handleSkip(bot, chatId, db, boy, args) {
     WHERE customer_id = ? AND status = 'active'
   `).run(delivery.customer_id);
 
-  return bot.sendMessage(
-    chatId,
-    `⏭️ ${code} — ${delivery.name} marked as skipped at ${timeStr}.`
-  );
+  const reply = `⏭️ ${code} — ${delivery.name} marked as skipped at ${timeStr}.`;
+  if (allDeliveriesComplete(db, boy.id)) {
+    return bot.sendMessage(chatId, reply + '\n\nAll deliveries completed! Send /finish for route summary.');
+  }
+  return bot.sendMessage(chatId, reply);
 }
 
 /**
@@ -322,10 +324,11 @@ async function handleIssue(bot, chatId, db, boy, args) {
     UPDATE deliveries SET status = 'issue', issue_reason = ?, marked_at = ? WHERE id = ?
   `).run(reason, timeStr, delivery.id);
 
-  return bot.sendMessage(
-    chatId,
-    `⚠️ ${code} — ${delivery.name} issue recorded: ${reason}`
-  );
+  const reply = `⚠️ ${code} — ${delivery.name} issue recorded: ${reason}`;
+  if (allDeliveriesComplete(db, boy.id)) {
+    return bot.sendMessage(chatId, reply + '\n\nAll deliveries completed! Send /finish for route summary.');
+  }
+  return bot.sendMessage(chatId, reply);
 }
 
 /**
@@ -403,6 +406,23 @@ async function handleHelp(bot, chatId) {
   ].join('\n');
 
   return bot.sendMessage(chatId, helpText);
+}
+
+/**
+ * Checks if all of a delivery boy's deliveries for today are in a terminal status
+ * (delivered, skipped, or issue).
+ * @param {object} db - Database instance
+ * @param {number} boyId - Delivery boy ID
+ * @returns {boolean}
+ */
+function allDeliveriesComplete(db, boyId) {
+  const row = db.prepare(`
+    SELECT COUNT(*) AS total,
+           SUM(CASE WHEN status IN ('delivered', 'skipped', 'issue') THEN 1 ELSE 0 END) AS done
+    FROM deliveries
+    WHERE delivery_boy_id = ? AND delivery_date = date('now')
+  `).get(boyId);
+  return row.total > 0 && row.total === row.done;
 }
 
 /**

@@ -746,6 +746,31 @@ describe('routes/telegram.js — setupTelegramBot', () => {
     });
   });
 
+  // ── /finish suggestion after last delivery (Fix 8) ──────────────
+
+  describe('/finish suggestion on last delivery', () => {
+    it('suggests /finish when all deliveries are completed', async () => {
+      bot.clearMessages();
+      // Create a new delivery boy with exactly 1 delivery
+      testDb.prepare(
+        'INSERT OR IGNORE INTO delivery_boys (id, name, phone, telegram_chat_id, region) VALUES (?, ?, ?, ?, ?)'
+      ).run(10, 'SingleBoy', '9000000010', 1010, 'Test');
+      testDb.prepare(
+        'INSERT OR IGNORE INTO customers (id, code, name, phone, address, delivery_boy_id, monthly_rate, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      ).run(30, 'C030', 'OneDelivery', '9000000030', '1 Test St', 10, 300000, 'active');
+      testDb.prepare(
+        "INSERT OR IGNORE INTO subscriptions (customer_id, start_date, end_date, total_days, remaining_days, status) VALUES (?, date('now'), date('now', '+30 days'), 30, 30, 'active')"
+      ).run(30);
+      testDb.prepare(
+        "INSERT OR IGNORE INTO deliveries (customer_id, delivery_boy_id, delivery_date, status) VALUES (?, ?, date('now'), 'pending')"
+      ).run(30, 10);
+      await bot.simulateMessage('/done C030', 1010);
+      const last = bot.lastMessage();
+      assert.ok(last, 'Should have sent a message');
+      assert.match(last.text, /\/finish|All deliveries completed|route summary/i);
+    });
+  });
+
   // ── /finish ──────────────────────────────────────────────────────
 
   describe('/finish — route summary', () => {
