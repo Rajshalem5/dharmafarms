@@ -15,6 +15,8 @@ const {
   getPaymentLedger,
   recordPayment,
   getPaymentModes,
+  pauseSubscription,
+  resumeSubscription,
 } = require('../services/subscription');
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -449,5 +451,197 @@ describe('autoExpireSubscriptions', () => {
       "SELECT status FROM subscriptions WHERE end_date = date('now', '+25 days')"
     ).get();
     assert.strictEqual(active.status, 'active');
+  });
+});
+
+// ─── Date helpers for pause/resume tests ────────────────────────────────
+
+function tomorrowStr() {
+  return new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+}
+
+function daysFromNow(n) {
+  return new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+}
+
+// ─── pauseSubscription ────────────────────────────────────────────────
+
+describe('pauseSubscription', () => {
+  let db;
+
+  afterEach(() => {
+    if (db) db.close();
+  });
+
+  it('pauses an active subscription with valid future dates', () => {
+    db = createTestDb();
+    seedSimpleData(db);
+
+    const start = tomorrowStr();
+    const end = daysFromNow(3);
+
+    const result = pauseSubscription(db, 1, start, end);
+
+    assert.strictEqual(result.paused, true);
+    assert.strictEqual(result.pausedUntil, end);
+    assert.strictEqual(result.remainingDaysAdded, 3);
+
+    const sub = db.prepare('SELECT * FROM subscriptions WHERE customer_id = 1').get();
+    assert.strictEqual(sub.status, 'paused');
+    assert.strictEqual(sub.paused_until, end);
+    // 25 remaining + 3 pause days
+    assert.strictEqual(sub.remaining_days, 28);
+  });
+
+  it('deletes pending deliveries within the pause range', () => {
+    db = createTestDb();
+    seedSimpleData(db);
+
+    const start = tomorrowStr();
+    const end = daysFromNow(3);
+
+    // Pending deliveries in the pause range
+    db.prepare(
+      `INSERT INTO deliveries (customer_id, delivery_boy_id, delivery_date, status)
+       VALUES (?, ?, ?, 'pending')`
+    ).run(1, 1, start);
+    db.prepare(
+      `INSERT INTO deliveries (customer_id, delivery_boy_id, delivery_date, status)
+       VALUES (?, ?, ?, 'pending')`
+    ).run(1, 1, end);
+
+    // Delivered delivery (should NOT be deleted)
+    db.prepare(
+      `INSERT INTO deliveries (customer_id, delivery_boy_id, delivery_date, status)
+       VALUES (?, ?, ?, 'delivered')`
+    ).run(1, 1, daysFromNow(2));
+
+    pauseSubscription(db, 1, start, end);
+
+    const pendingCount = db.prepare(
+      "SELECT COUNT(*) AS c FROM deliveries WHERE customer_id = 1 AND status = 'pending'"
+    ).get().c;
+    assert.strictEqual(pendingCount, 0, 'Should delete pending deliveries in range');
+
+    const deliveredCount = db.prepare(
+      "SELECT COUNT(*) AS c FROM deliveries WHERE customer_id = 1 AND status = 'delivered'"
+    ).get().c;
+    assert.strictEqual(deliveredCount, 1, 'Should NOT delete delivered deliveries');
+  });
+
+  it('throws when customer does not exist', () => {
+    db = createTestDb();
+    seedSimpleData(db);
+
+    assert.throws(() => {
+      pauseSubscription(db, 999, tomorrowStr(), daysFromNow(3));
+    }, /customer not found/i);
+  });
+
+  it('throws when customer has no active subscription', () => {
+    db = createTestDb();
+    seedSimpleData(db);
+    db.prepare("UPDATE subscriptions SET status = 'expired' WHERE customer_id = 1").run();
+
+    assert.throws(() => {
+      pauseSubscription(db, 1, tomorrowStr(), daysFromNow(3));
+    }, /no active subscription/i);
+  });
+
+  it('throws when subscription is already paused', () => {
+    db = createTestDb();
+    seedSimpleData(db);
+    db.prepare(
+      "UPDATE subscriptions SET status = 'paused', paused_until = date('now', '+5 days') WHERE customer_id = 1"
+    ).run();
+
+    assert.throws(() => {
+      pauseSubscription(db, 1, tomorrowStr(), daysFromNow(3));
+    }, /no active subscription/i);
+  });
+
+  it('throws when start_date is before tomorrow', () => {
+    db = createTestDb();
+    seedSimpleData(db);
+
+    assert.throws(() => {
+      pauseSubscription(db, 1, new Date().toISOString().slice(0, 10), daysFromNow(3));
+    }, /must be tomorrow or later/i);
+  });
+
+  it('throws when end_date is not after start_date', () => {
+    db = createTestDb();
+    seedSimpleData(db);
+
+    const start = tomorrowStr();
+
+    assert.throws(() => {
+      pauseSubscription(db, 1, start, start);
+    }, /must be after start date/i);
+  });
+
+  it('throws when dates are not in YYYY-MM-DD format', () => {
+    db = createTestDb();
+    seedSimpleData(db);
+
+    assert.throws(() => {
+      pauseSubscription(db, 1, '01-01-2026', '05-01-2026');
+    }, /YYYY-MM-DD/i);
+  });
+});
+
+// ─── resumeSubscription ───────────────────────────────────────────────
+
+describe('resumeSubscription', () => {
+  let db;
+
+  afterEach(() => {
+    if (db) db.close();
+  });
+
+  it('resumes a paused subscription', () => {
+    db = createTestDb();
+    seedSimpleData(db);
+
+    // Pause it first
+    db.prepare(
+      "UPDATE subscriptions SET status = 'paused', paused_until = date('now', '+5 days') WHERE customer_id = 1"
+    ).run();
+
+    const result = resumeSubscription(db, 1);
+
+    assert.strictEqual(result.resumed, true);
+
+    const sub = db.prepare('SELECT * FROM subscriptions WHERE customer_id = 1').get();
+    assert.strictEqual(sub.status, 'active');
+    assert.strictEqual(sub.paused_until, null);
+  });
+
+  it('throws when customer does not exist', () => {
+    db = createTestDb();
+    seedSimpleData(db);
+
+    assert.throws(() => {
+      resumeSubscription(db, 999);
+    }, /customer not found/i);
+  });
+
+  it('throws when subscription is not paused', () => {
+    db = createTestDb();
+    seedSimpleData(db);
+
+    assert.throws(() => {
+      resumeSubscription(db, 1);
+    }, /not paused/i);
+  });
+
+  it('throws when no subscription exists', () => {
+    db = createTestDb();
+    seedSimpleData(db);
+    db.prepare("DELETE FROM subscriptions WHERE customer_id = 1").run();
+
+    assert.throws(() => {
+      resumeSubscription(db, 1);
+    }, /subscription/i);
   });
 });

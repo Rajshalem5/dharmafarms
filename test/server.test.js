@@ -259,7 +259,7 @@ describe('server.js — createApp', () => {
     it('sanitizes token URLs without crashing', async () => {
       const fakeToken = 'a'.repeat(64);
       const res = await request(server, 'GET', '/my-account/' + fakeToken);
-      assert.strictEqual(res.status, 404, 'Should return 404 (route does not exist yet)');
+      assert.strictEqual(res.status, 200, 'Should return 200 (customer portal now exists)');
     });
 
     it('configures express-session middleware', async () => {
