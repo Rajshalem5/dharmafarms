@@ -163,10 +163,137 @@ function getBalance(db, customerId) {
   };
 }
 
+/**
+ * Validates that a date string matches YYYY-MM-DD format.
+ * @param {string} dateStr
+ * @returns {boolean}
+ */
+function isValidDateStr(dateStr) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateStr) && !isNaN(new Date(dateStr).getTime());
+}
+
+/**
+ * Pauses an active subscription from startDate to endDate (inclusive).
+ *
+ * Validation (in order):
+ * - Customer must exist
+ * - Customer must have an active subscription (status = 'active')
+ * - Subscription must NOT already be paused (paused_until IS NULL)
+ * - startDate must be >= tomorrow
+ * - endDate must be > startDate
+ * - Dates must match YYYY-MM-DD format
+ *
+ * Also deletes any pending deliveries within the pause range.
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @param {number} customerId
+ * @param {string} startDate - YYYY-MM-DD
+ * @param {string} endDate - YYYY-MM-DD
+ * @returns {{ paused: boolean, pausedUntil: string, remainingDaysAdded: number }}
+ */
+function pauseSubscription(db, customerId, startDate, endDate) {
+  // Validate YYYY-MM-DD format
+  if (!isValidDateStr(startDate) || !isValidDateStr(endDate)) {
+    throw new Error('Dates must be in YYYY-MM-DD format');
+  }
+
+  // Validate startDate >= tomorrow
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+  if (startDate < tomorrowStr) {
+    throw new Error('Start date must be tomorrow or later');
+  }
+
+  // Validate endDate > startDate
+  if (endDate <= startDate) {
+    throw new Error('End date must be after start date');
+  }
+
+  // Validate customer exists
+  const customer = db.prepare('SELECT id FROM customers WHERE id = ?').get(customerId);
+  if (!customer) {
+    throw new Error('Customer not found');
+  }
+
+  // Validate active subscription exists and is not already paused
+  const sub = db.prepare(
+    "SELECT id, status, paused_until, remaining_days FROM subscriptions WHERE customer_id = ? AND status = 'active' AND paused_until IS NULL ORDER BY id DESC LIMIT 1"
+  ).get(customerId);
+
+  if (!sub) {
+    throw new Error('No active subscription found');
+  }
+
+  // Calculate days to add back
+  const daysAdded = Math.round((new Date(endDate) - new Date(startDate)) / 86400000) + 1;
+
+  const doPause = db.transaction(() => {
+    // Update subscription
+    db.prepare(`
+      UPDATE subscriptions
+      SET status = 'paused',
+          paused_until = ?,
+          remaining_days = remaining_days + ?
+      WHERE customer_id = ? AND status = 'active' AND paused_until IS NULL
+    `).run(endDate, daysAdded, customerId);
+
+    // Delete pending deliveries within the pause range
+    db.prepare(`
+      DELETE FROM deliveries
+      WHERE customer_id = ? AND delivery_date >= ? AND delivery_date <= ? AND status = 'pending'
+    `).run(customerId, startDate, endDate);
+  });
+
+  doPause();
+
+  return { paused: true, pausedUntil: endDate, remainingDaysAdded: daysAdded };
+}
+
+/**
+ * Resumes a paused subscription.
+ *
+ * Validation:
+ * - Customer must exist
+ * - Customer must have a subscription
+ * - Subscription must be paused (paused_until IS NOT NULL)
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @param {number} customerId
+ * @returns {{ resumed: boolean }}
+ */
+function resumeSubscription(db, customerId) {
+  // Validate customer exists
+  const customer = db.prepare('SELECT id FROM customers WHERE id = ?').get(customerId);
+  if (!customer) {
+    throw new Error('Customer not found');
+  }
+
+  // Validate a paused subscription exists
+  const sub = db.prepare(
+    "SELECT id FROM subscriptions WHERE customer_id = ? AND paused_until IS NOT NULL ORDER BY id DESC LIMIT 1"
+  ).get(customerId);
+
+  if (!sub) {
+    throw new Error('Subscription is not paused');
+  }
+
+  db.prepare(`
+    UPDATE subscriptions
+    SET status = 'active',
+        paused_until = NULL
+    WHERE customer_id = ? AND paused_until IS NOT NULL
+  `).run(customerId);
+
+  return { resumed: true };
+}
+
 module.exports = {
   autoExpireSubscriptions,
   getBalance,
   getPaymentLedger,
   recordPayment,
   getPaymentModes,
+  pauseSubscription,
+  resumeSubscription,
 };

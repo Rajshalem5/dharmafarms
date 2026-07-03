@@ -25,6 +25,7 @@ const rateLimit = require('express-rate-limit');
 
 const { initializeDatabase, getDb, getAdminPasswordHash } = require('./db');
 const { setupAdminRoutes } = require('./routes/admin');
+const { setupCustomerRoutes } = require('./routes/customer');
 const { setupTelegramBot } = require('./routes/telegram');
 const { dispatchExistsForToday, generateDispatch } = require('./services/dispatch');
 const { performCompleteBackupCycle } = require('./services/backup');
@@ -229,6 +230,7 @@ function createApp(db) {
   // ── Mount admin routes ────────────────────────────────────────────
 
   setupAdminRoutes(app, db);
+  setupCustomerRoutes(app, db);
 
   // ── 404 handler ───────────────────────────────────────────────────
 
