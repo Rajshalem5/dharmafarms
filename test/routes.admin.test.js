@@ -672,6 +672,35 @@ describe('routes/admin.js — setupAdminRoutes', () => {
 
         editDb.close();
       });
+
+      it('rejects invalid delivery_boy_id', async () => {
+        const editDb = createTestDb();
+        seedDeliveryBoys(editDb);
+        seedCustomers(editDb);
+        const editApp = createApp(editDb, 'admin123');
+
+        const loginRes = await postForm(editApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        // Customer 1 (Ram) is assigned to delivery_boy_id 1 (Raju)
+        const res = await postForm(editApp, '/admin/customers/1/edit', {
+          name: 'Ram',
+          phone: '9000000001',
+          address: '123 Main St',
+          delivery_boy_id: 999,
+          monthly_rate: 300,
+        }, cookie);
+
+        assert.strictEqual(res.status, 302);
+
+        // Customer's delivery_boy_id should remain unchanged
+        const customer = editDb.prepare('SELECT * FROM customers WHERE id = 1').get();
+        assert.strictEqual(customer.delivery_boy_id, 1);
+
+        editDb.close();
+      });
     });
 
     // ── POST /admin/customers/:id/regenerate-token ─────────────
@@ -1659,6 +1688,27 @@ describe('routes/admin.js — setupAdminRoutes', () => {
         repDb.close();
       });
 
+      it('defaults to current month when month parameter is invalid', async () => {
+        const repDb = createTestDb();
+        seedDeliveryBoys(repDb);
+        seedCustomers(repDb);
+        const repApp = createApp(repDb, 'admin123');
+
+        const loginRes = await postForm(repApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(repApp, 'GET', '/admin/reports?month=invalid', { cookie });
+        assert.strictEqual(res.status, 200);
+        assert.match(res.headers['content-type'], /html/);
+        // The month input value should be a valid YYYY-MM, not "invalid"
+        const match = res.body.match(/type="month"[^>]*value="([^"]+)"/);
+        assert.ok(match, 'Should have a month input with value attribute');
+        assert.match(match[1], /^\d{4}-\d{2}$/, 'Month should be in YYYY-MM format, not "' + match[1] + '"');
+        repDb.close();
+      });
+
       it('renders month selector input', async () => {
         const repDb = createTestDb();
         seedDeliveryBoys(repDb);
@@ -1675,6 +1725,29 @@ describe('routes/admin.js — setupAdminRoutes', () => {
         assert.match(res.body, /type="month"/);
         repDb.close();
       });
+
+      it('defaults to current month when month number is out of range', async () => {
+        const repDb = createTestDb();
+        seedDeliveryBoys(repDb);
+        seedCustomers(repDb);
+        const repApp = createApp(repDb, 'admin123');
+
+        const loginRes = await postForm(repApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(repApp, 'GET', '/admin/reports?month=2026-13', { cookie });
+        assert.strictEqual(res.status, 200);
+        const match = res.body.match(/type="month"[^>]*value="([^"]+)"/);
+        assert.ok(match, 'Should have a month input with value attribute');
+        // The month in the value should be the current month, not "13"
+        assert.doesNotMatch(match[1], /13$/, 'Month value should not contain invalid month "13"');
+        assert.match(match[1], /^\d{4}-\d{2}$/, 'Month should be in YYYY-MM format');
+        repDb.close();
+      });
+
+
     });
 
     // ── GET /admin/reports/export/:type ───────────────────────────

@@ -272,6 +272,14 @@ function setupAdminRoutes(app, db) {
       return res.redirect('/admin/customers');
     }
 
+    if (delivery_boy_id) {
+      const boy = db.prepare('SELECT id FROM delivery_boys WHERE id = ?').get(delivery_boy_id);
+      if (!boy) {
+        req.session.flash = { type: 'error', message: 'Invalid delivery boy selected.' };
+        return res.redirect('/admin/customers');
+      }
+    }
+
     db.prepare(`
       UPDATE customers
       SET name = ?, phone = ?, address = ?, delivery_boy_id = ?, monthly_rate = ?, updated_at = datetime('now')
@@ -623,7 +631,15 @@ function setupAdminRoutes(app, db) {
 
   app.get('/admin/reports', requireAuth, (req, res) => {
     const today = new Date();
-    const reportMonth = req.query.month || today.toISOString().slice(0, 7);
+    let reportMonth = req.query.month || today.toISOString().slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(reportMonth)) {
+      reportMonth = today.toISOString().slice(0, 7);
+    } else {
+      const parsedMonth = parseInt(reportMonth.slice(5, 7), 10);
+      if (parsedMonth < 1 || parsedMonth > 12) {
+        reportMonth = today.toISOString().slice(0, 7);
+      }
+    }
     const monthStart = reportMonth + '-01';
 
     // Calculate month end
