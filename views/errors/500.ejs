@@ -3,15 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>404 — Page Not Found | Dharma Farms</title>
+  <title>500 — Server Error | Dharma Farms</title>
   <script src="/js/tailwind.js"></script>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body class="bg-[#F0FDF4] min-h-screen flex items-center justify-center p-4">
   <div class="text-center">
-    <h1 class="text-6xl font-bold text-[#1B4332] mb-4">404</h1>
-    <p class="text-xl text-gray-600 mb-2">Page not found</p>
+    <h1 class="text-6xl font-bold text-[#1B4332] mb-4">500</h1>
+    <p class="text-xl text-gray-600 mb-2">Something went wrong</p>
     <p class="text-sm text-gray-400 mb-6">
+      An unexpected error occurred. Please try again or contact the admin.
+    </p>
+    <p class="text-xs text-gray-300 mb-6">
       <%= typeof url !== 'undefined' ? url : '' %>
     </p>
     <a href="/admin/login" class="inline-block bg-[#2D6A4F] hover:bg-[#1B4332] text-white font-medium py-2.5 px-6 rounded-lg transition-colors duration-150">
