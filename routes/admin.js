@@ -146,12 +146,62 @@ function setupAdminRoutes(app, db) {
       "SELECT COUNT(*) AS count FROM customers WHERE status = 'active'"
     ).get().count;
 
+    // ── Financial summary ───────────────────────────────────────────
+
+    // Query 1: Total collected this month (payments in current month)
+    const monthStart = today.slice(0, 7) + '-01';
+    const collectionRow = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) AS total_paise
+      FROM payments
+      WHERE payment_date >= ? AND payment_date < date(?, 'start of month', '+1 month')
+    `).get(monthStart, today);
+
+    // Query 2: Expected monthly revenue (sum of active customer rates)
+    const expectedRevenueRow = db.prepare(`
+      SELECT COALESCE(SUM(monthly_rate), 0) AS expected_paise
+      FROM customers WHERE status = 'active'
+    `).get();
+
+    // Query 3: Overdue count (customers with negative balance)
+    const activeCustWithSub = db.prepare(`
+      SELECT c.id, c.monthly_rate,
+        COALESCE((SELECT SUM(amount) FROM payments WHERE customer_id = c.id), 0) AS total_paid,
+        COALESCE((SELECT COUNT(*) FROM deliveries WHERE customer_id = c.id AND status = 'delivered'), 0) AS delivered_count
+      FROM customers c
+      INNER JOIN subscriptions s ON s.customer_id = c.id AND s.status = 'active'
+      WHERE c.status = 'active'
+    `).all();
+
+    let overdueCount = 0;
+    for (const c of activeCustWithSub) {
+      let paidDays = 0;
+      if (c.monthly_rate > 0) {
+        paidDays = Math.floor(c.total_paid / c.monthly_rate * 30);
+      }
+      if (paidDays - c.delivered_count < 0) {
+        overdueCount++;
+      }
+    }
+
+    // Query 4: Expiring subscriptions (remaining_days <= 3)
+    const expiringSubs = db.prepare(`
+      SELECT c.code, c.name, s.remaining_days
+      FROM customers c
+      INNER JOIN subscriptions s ON s.customer_id = c.id
+      WHERE c.status = 'active' AND s.status = 'active' AND s.remaining_days <= 3
+      ORDER BY s.remaining_days ASC, c.name ASC
+    `).all();
+
     const hasDeliveries = totals && totals.total > 0;
 
     renderView(res, 'admin/dashboard', {
       boyStats: boyStats || [],
       totals: totals || { total: 0, delivered: 0, skipped: 0, issue: 0, pending: 0, arriving: 0 },
       activeCustomers,
+      monthlyCollected: collectionRow.total_paise,
+      expectedRevenue: expectedRevenueRow.expected_paise,
+      overdueCount,
+      expiringSubs,
       hasDeliveries,
       activePage: 'dashboard',
     });
@@ -161,7 +211,10 @@ function setupAdminRoutes(app, db) {
 
   app.get('/admin/customers', requireAuth, (req, res) => {
     const customers = db.prepare(`
-      SELECT c.*, db.name AS delivery_boy_name
+      SELECT c.*, db.name AS delivery_boy_name,
+        (SELECT remaining_days FROM subscriptions
+         WHERE customer_id = c.id AND status = 'active'
+         ORDER BY id DESC LIMIT 1) AS remaining_days
       FROM customers c
       LEFT JOIN delivery_boys db ON db.id = c.delivery_boy_id
       ORDER BY c.code ASC

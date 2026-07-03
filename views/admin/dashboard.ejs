@@ -1,6 +1,50 @@
 <div class="p-6">
   <h1 class="text-2xl font-bold text-[#1B4332] mb-6">Dashboard</h1>
 
+  <!-- Financial Summary -->
+  <div class="stats-grid mb-6">
+    <div class="stat-card">
+      <div class="stat-card-border" style="background:#16a34a"></div>
+      <div class="stat-card-body">
+        <p class="stat-card-count tabular-nums">₹ <%= (+monthlyCollected / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 }) %></p>
+        <p class="stat-card-label">Collected This Month</p>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card-border" style="background:#2563eb"></div>
+      <div class="stat-card-body">
+        <p class="stat-card-count tabular-nums">₹ <%= (+expectedRevenue / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 }) %></p>
+        <p class="stat-card-label">Expected Monthly Revenue</p>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card-border" style="background:<%= overdueCount > 0 ? '#dc2626' : '#6b7280' %>"></div>
+      <div class="stat-card-body">
+        <p class="stat-card-count <%= overdueCount > 0 ? 'text-red-600' : '' %>"><%= overdueCount %></p>
+        <p class="stat-card-label">Overdue Accounts</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Expiring Subscriptions Alert -->
+  <% if (expiringSubs.length > 0) { %>
+    <div class="bg-amber-50 border-l-4 border-l-amber-500 border border-amber-200 rounded-lg p-4 mb-6">
+      <div class="flex items-start gap-3">
+        <svg class="w-5 h-5 text-amber-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+        </svg>
+        <div class="flex-1">
+          <p class="text-sm font-semibold text-amber-800">Expiring Subscriptions (<%= expiringSubs.length %>)</p>
+          <p class="text-sm text-amber-700 mt-1">
+            <% expiringSubs.forEach(function(e, i) { %>
+              <a href="/admin/customers" class="underline hover:text-amber-900"><%= e.code %> — <%= e.name %> (<%= e.remaining_days %> day<%= e.remaining_days !== 1 ? 's' : '' %>)</a><%= i < expiringSubs.length - 1 ? ', ' : '' %>
+            <% }); %>
+          </p>
+        </div>
+      </div>
+    </div>
+  <% } %>
+
   <% if (!hasDeliveries) { %>
     <div class="bg-white rounded-xl shadow-sm p-8 text-center">
       <p class="text-gray-500 mb-4">No deliveries have been generated for today yet.</p>

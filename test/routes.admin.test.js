@@ -480,6 +480,143 @@ describe('routes/admin.js — setupAdminRoutes', () => {
         assert.strictEqual(res.status, 200);
         busyDb.close();
       });
+
+      it('shows financial summary cards (Collected This Month, Expected Revenue, Overdue Accounts)', async () => {
+        const finDb = createTestDb();
+        seedDeliveryBoys(finDb);
+        seedCustomers(finDb);
+        seedPayments(finDb);
+        const finApp = createApp(finDb, 'admin123');
+
+        const loginRes = await postForm(finApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(finApp, 'GET', '/admin/dashboard', { cookie });
+        assert.strictEqual(res.status, 200);
+        assert.match(res.body, /Collected This Month/);
+        assert.match(res.body, /Expected Monthly Revenue/);
+        assert.match(res.body, /Overdue Accounts/);
+        finDb.close();
+      });
+
+      it('shows overdue count with red styling when accounts are overdue', async () => {
+        const ovDb = createTestDb();
+        seedDeliveryBoys(ovDb);
+        seedCustomers(ovDb);
+        // Add 5 delivered deliveries for customer 1 with no payments → balanceDays = -5 → overdue
+        // Use different dates to avoid UNIQUE(customer_id, delivery_date) constraint
+        const insertDel = ovDb.prepare(
+          `INSERT INTO deliveries (customer_id, delivery_boy_id, delivery_date, status, marked_at)
+           VALUES (?, ?, ?, 'delivered', '06:15')`
+        );
+        for (let i = 0; i < 5; i++) {
+          insertDel.run(1, 1, dateOffset(-i));
+        }
+        const ovApp = createApp(ovDb, 'admin123');
+
+        const loginRes = await postForm(ovApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(ovApp, 'GET', '/admin/dashboard', { cookie });
+        assert.strictEqual(res.status, 200);
+        // Overdue card should have red accent border
+        assert.match(res.body, /#dc2626/);
+        ovDb.close();
+      });
+
+      it('shows overdue count with gray styling when no accounts are overdue', async () => {
+        const okDb = createTestDb();
+        seedDeliveryBoys(okDb);
+        seedCustomers(okDb);
+        // No deliveries → no consumed days → no overdue
+        const okApp = createApp(okDb, 'admin123');
+
+        const loginRes = await postForm(okApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(okApp, 'GET', '/admin/dashboard', { cookie });
+        assert.strictEqual(res.status, 200);
+        // Overdue card should have gray accent border (not red)
+        assert.match(res.body, /#6b7280/);
+        okDb.close();
+      });
+
+      it('shows expiring subscriptions amber warning banner when subscriptions are expiring', async () => {
+        const expDb = createTestDb();
+        seedDeliveryBoys(expDb);
+        seedCustomers(expDb);
+        // Add a customer with remaining_days = 1
+        expDb.prepare(
+          `INSERT INTO customers (id, code, name, phone, address, delivery_boy_id, monthly_rate, status, token)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(5, 'C005', 'Expiring', '9000000005', '999 Low St', 1, 30000, 'active', 'tok_exp_005');
+        expDb.prepare(
+          `INSERT INTO subscriptions (customer_id, start_date, total_days, remaining_days, status)
+           VALUES (?, date('now'), 30, 1, 'active')`
+        ).run(5);
+        const expApp = createApp(expDb, 'admin123');
+
+        const loginRes = await postForm(expApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(expApp, 'GET', '/admin/dashboard', { cookie });
+        assert.strictEqual(res.status, 200);
+        // Amber warning banner should appear
+        assert.match(res.body, /Expiring Subscriptions/);
+        // Customer name should appear in the banner
+        assert.ok(res.body.includes('Expiring'));
+        // Should mention remaining days
+        assert.match(res.body, /1 day/);
+        expDb.close();
+      });
+
+      it('hides expiring subscriptions banner when no subscriptions are expiring', async () => {
+        const safeDb = createTestDb();
+        seedDeliveryBoys(safeDb);
+        seedCustomers(safeDb);
+        // All customers have remaining_days = 20 (from seedCustomers) → not expiring
+        const safeApp = createApp(safeDb, 'admin123');
+
+        const loginRes = await postForm(safeApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(safeApp, 'GET', '/admin/dashboard', { cookie });
+        assert.strictEqual(res.status, 200);
+        // The amber banner classes should NOT appear
+        assert.ok(!res.body.includes('bg-amber-50'));
+        safeDb.close();
+      });
+
+      it('shows financial summary cards even when no deliveries exist', async () => {
+        const nodDb = createTestDb();
+        seedDeliveryBoys(nodDb);
+        seedCustomers(nodDb);
+        seedPayments(nodDb);
+        // No dispatch generated → hasDeliveries is false
+        const nodApp = createApp(nodDb, 'admin123');
+
+        const loginRes = await postForm(nodApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(nodApp, 'GET', '/admin/dashboard', { cookie });
+        assert.strictEqual(res.status, 200);
+        // Financial cards should appear even though there are no deliveries
+        assert.match(res.body, /Collected This Month/);
+        assert.match(res.body, /Expected Monthly Revenue/);
+        nodDb.close();
+      });
     });
 
     // ── GET /admin/customers ────────────────────────────────────
@@ -553,6 +690,92 @@ describe('routes/admin.js — setupAdminRoutes', () => {
         );
 
         tokDb.close();
+      });
+
+      it('shows Rem. Days column header in customers table', async () => {
+        const rdDb = createTestDb();
+        seedDeliveryBoys(rdDb);
+        seedCustomers(rdDb);
+        const rdApp = createApp(rdDb, 'admin123');
+
+        const loginRes = await postForm(rdApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(rdApp, 'GET', '/admin/customers', { cookie });
+
+        // Rem. Days column header should exist
+        assert.match(res.body, /<th>Rem\.?\s*Days?<\/th>/);
+
+        rdDb.close();
+      });
+
+      it('shows remaining_days for customers with active subscriptions', async () => {
+        const rdDb = createTestDb();
+        seedDeliveryBoys(rdDb);
+        seedCustomers(rdDb);
+        const rdApp = createApp(rdDb, 'admin123');
+
+        const loginRes = await postForm(rdApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(rdApp, 'GET', '/admin/customers', { cookie });
+
+        // Customer 1 (Ram) has remaining_days=20 from seed data
+        assert.ok(res.body.includes('20'), 'Should show remaining_days value of 20');
+        rdDb.close();
+      });
+
+      it('shows em-dash for customers with no active subscription', async () => {
+        const rdDb = createTestDb();
+        seedDeliveryBoys(rdDb);
+        seedCustomers(rdDb);
+        const rdApp = createApp(rdDb, 'admin123');
+
+        const loginRes = await postForm(rdApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(rdApp, 'GET', '/admin/customers', { cookie });
+
+        // Customer 4 (Sita, inactive) has no subscription → should show em-dash
+        // The em-dash should appear in the table body, not the header
+        assert.ok(res.body.includes('—'), 'Should show em-dash for customers with no subscription');
+        rdDb.close();
+      });
+
+      it('shows red text for remaining_days <= 3', async () => {
+        const rdDb = createTestDb();
+        seedDeliveryBoys(rdDb);
+        seedCustomers(rdDb);
+        // Add a customer with expiring subscription (remaining_days = 1)
+        rdDb.prepare(
+          `INSERT INTO customers (id, code, name, phone, address, delivery_boy_id, monthly_rate, status, token)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(5, 'C005', 'Expiring', '9000000005', '999 Low St', 1, 30000, 'active', 'tok_expiring_005');
+        rdDb.prepare(
+          `INSERT INTO subscriptions (customer_id, start_date, total_days, remaining_days, status)
+           VALUES (?, date('now'), 30, 1, 'active')`
+        ).run(5);
+
+        const rdApp = createApp(rdDb, 'admin123');
+
+        const loginRes = await postForm(rdApp, '/admin/login', { password: 'admin123' });
+        const cookie = Array.isArray(loginRes.headers['set-cookie'])
+          ? loginRes.headers['set-cookie'].join('; ')
+          : loginRes.headers['set-cookie'];
+
+        const res = await request(rdApp, 'GET', '/admin/customers', { cookie });
+
+        // Should have red text styling for expiring subscription
+        assert.ok(res.body.includes('text-red-600'), 'Should have red text styling');
+        // The value 1 should appear somewhere in the table body for the expiring customer
+        assert.ok(/>\s*1\s*</.test(res.body), 'Should show the value 1');
+        rdDb.close();
       });
     });
 
