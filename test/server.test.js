@@ -238,6 +238,24 @@ describe('server.js — createApp', () => {
       assert.strictEqual(res.headers['x-frame-options'], 'SAMEORIGIN');
     });
 
+    it('sets Content-Security-Policy header with CDN and inline-script allowances', async () => {
+      const res = await request(server, 'GET', '/health');
+      const csp = res.headers['content-security-policy'];
+      assert.ok(csp, 'Should have Content-Security-Policy header');
+
+      // Must allow Tailwind CDN for scripts
+      assert.ok(csp.includes('cdn.jsdelivr.net'),
+        'CSP should allow cdn.jsdelivr.net for scripts');
+
+      // Must allow inline scripts (for modals/forms)
+      assert.ok(csp.includes("'unsafe-inline'"),
+        'CSP should allow unsafe-inline for scripts');
+
+      // Must allow data: URIs for images
+      assert.ok(csp.includes('data:'),
+        'CSP should allow data: URIs for images');
+    });
+
     it('sanitizes token URLs without crashing', async () => {
       const fakeToken = 'a'.repeat(64);
       const res = await request(server, 'GET', '/my-account/' + fakeToken);
