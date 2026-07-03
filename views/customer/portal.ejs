@@ -1,2 +1,540 @@
-<%# Stub template for testing — will be replaced with real template in Chunk 3 %>
-<% if (locals.error) { %>{"_error":true}<% } else { %>{"_ok":true,"name":"<%= customerName %>","code":"<%= customerCode %>","boy":"<%= deliveryBoyName %>","status":"<%= subscriptionStatus %>","remaining":<%= remainingDays %>,"pausedUntil":"<%= pausedUntil || '' %>","today":"<%= todayDeliveryStatus || '' %>","token":"<%= token %>","tomorrow":"<%= tomorrow %>"<% if (locals.pauseSuccess) { %>,"pauseSuccess":true,"pauseEndDate":"<%= pauseEndDate %>"<% } %><% if (locals.pauseError) { %>,"pauseError":"<%= pauseError %>"<% } %><% if (locals.resumeSuccess) { %>,"resumeSuccess":true<% } %><% if (locals.resumeError) { %>,"resumeError":"<%= resumeError %>"<% } %>}<% } %>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dharma Farms — My Account</title>
+  <style>
+    /* ── Reset & Base ─────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: #F0FDF4;
+      color: #1f2937;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* ── Header ──────────────────────────────────────── */
+    .header {
+      background: #1B4332;
+      color: #fff;
+      padding: 1rem 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+    }
+    .header-icon {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+    }
+    .header h1 {
+      font-size: 1.125rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    /* ── Container ───────────────────────────────────── */
+    .container {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 1.25rem 1rem 2.5rem;
+    }
+
+    /* ── Banner ──────────────────────────────────────── */
+    .banner {
+      padding: 0.875rem 1rem;
+      border-radius: 0.5rem;
+      font-size: 0.9375rem;
+      font-weight: 500;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      line-height: 1.4;
+    }
+    .banner-success {
+      background: #dcfce7;
+      color: #166534;
+      border: 1px solid #bbf7d0;
+    }
+    .banner-error {
+      background: #fee2e2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+    }
+    .banner-icon {
+      flex-shrink: 0;
+      width: 20px;
+      height: 20px;
+    }
+
+    /* ── Card ────────────────────────────────────────── */
+    .card {
+      background: #fff;
+      border-radius: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      padding: 1.25rem;
+      margin-bottom: 1rem;
+    }
+    .card-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #6b7280;
+      margin-bottom: 0.75rem;
+    }
+
+    /* ── Error State ─────────────────────────────────── */
+    .error-card {
+      text-align: center;
+      padding: 3rem 1.5rem;
+    }
+    .error-icon {
+      width: 48px;
+      height: 48px;
+      color: #9ca3af;
+      margin-bottom: 1rem;
+    }
+    .error-card h2 {
+      font-size: 1.125rem;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 0.5rem;
+    }
+    .error-card p {
+      font-size: 0.875rem;
+      color: #6b7280;
+    }
+
+    /* ── Customer Info ───────────────────────────────── */
+    .customer-name {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #1f2937;
+      word-break: break-word;
+    }
+    .customer-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1.25rem;
+      margin-top: 0.625rem;
+      font-size: 0.875rem;
+      color: #6b7280;
+    }
+    .customer-meta dt {
+      font-weight: 600;
+      color: #374151;
+    }
+    .customer-meta dd {
+      margin-left: 0;
+    }
+    .customer-meta-item {
+      display: flex;
+      align-items: center;
+      gap: 0.375rem;
+    }
+
+    /* ── Status Badge ────────────────────────────────── */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.375rem;
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      line-height: 1.5;
+    }
+    .status-badge-active {
+      background: #dcfce7;
+      color: #166534;
+    }
+    .status-badge-paused {
+      background: #fef9c3;
+      color: #854d0e;
+    }
+    .status-badge-expired {
+      background: #f3f4f6;
+      color: #6b7280;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .status-dot-active { background: #16a34a; }
+    .status-dot-paused { background: #ca8a04; }
+    .status-dot-expired { background: #9ca3af; }
+
+    /* ── Metrics Grid ────────────────────────────────── */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+    }
+    .metric {
+      background: #f9fafb;
+      border-radius: 0.5rem;
+      padding: 0.875rem 1rem;
+    }
+    .metric-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #1f2937;
+      line-height: 1.2;
+    }
+    .metric-label {
+      font-size: 0.75rem;
+      color: #6b7280;
+      margin-top: 0.25rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .metric-delivery-status {
+      font-size: 0.875rem;
+      font-weight: 600;
+      margin-top: 0.25rem;
+    }
+    .metric-delivery-status.delivered { color: #16a34a; }
+    .metric-delivery-status.skipped { color: #ca8a04; }
+    .metric-delivery-status.issue { color: #dc2626; }
+    .metric-delivery-status.arriving { color: #2563eb; }
+    .metric-delivery-status.pending { color: #6b7280; }
+    .metric-delivery-status.none { color: #9ca3af; }
+
+    /* ── Action Section ──────────────────────────────── */
+    .action-section {
+      margin-top: 0;
+    }
+    .action-section h3 {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: #1f2937;
+      margin-bottom: 1rem;
+    }
+
+    /* ── Pause Form ──────────────────────────────────── */
+    .form-group {
+      margin-bottom: 1rem;
+    }
+    .form-group label {
+      display: block;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 0.375rem;
+    }
+    .form-group input[type="date"] {
+      width: 100%;
+      height: 44px;
+      padding: 0 0.75rem;
+      border: 1px solid #d1d5db;
+      border-radius: 0.5rem;
+      font-size: 1rem;
+      font-family: inherit;
+      color: #1f2937;
+      background: #fff;
+      -webkit-appearance: none;
+      appearance: none;
+      min-height: 44px;
+    }
+    .form-group input[type="date"]:focus {
+      outline: none;
+      border-color: #2D6A4F;
+      box-shadow: 0 0 0 3px rgba(45, 106, 79, 0.15);
+    }
+    .form-group .hint {
+      font-size: 0.75rem;
+      color: #6b7280;
+      margin-top: 0.25rem;
+    }
+
+    /* ── Buttons ─────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      width: 100%;
+      min-height: 44px;
+      padding: 0.625rem 1.25rem;
+      border: none;
+      border-radius: 0.5rem;
+      font-size: 1rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.15s, opacity 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .btn-primary {
+      background: #2D6A4F;
+      color: #fff;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: #1B4332;
+    }
+    .btn-primary:active:not(:disabled) {
+      background: #143127;
+    }
+    .btn-resume {
+      background: #16a34a;
+      color: #fff;
+    }
+    .btn-resume:hover:not(:disabled) {
+      background: #15803d;
+    }
+    .btn-resume:active:not(:disabled) {
+      background: #166534;
+    }
+    
+    /* ── Expired Message ─────────────────────────────── */
+    .expired-message {
+      text-align: center;
+      padding: 1.5rem 1rem;
+      color: #6b7280;
+    }
+    .expired-message p {
+      font-size: 0.9375rem;
+      margin-bottom: 0.5rem;
+    }
+    .expired-message .hint {
+      font-size: 0.8125rem;
+    }
+
+    /* ── Paused Info ─────────────────────────────────── */
+    .paused-info {
+      font-size: 0.875rem;
+      color: #6b7280;
+      margin-bottom: 1rem;
+      text-align: center;
+    }
+
+    /* ── Footer ──────────────────────────────────────── */
+    .footer {
+      text-align: center;
+      padding: 1.5rem 1rem 0.5rem;
+    }
+    .footer p {
+      font-size: 0.75rem;
+      color: #9ca3af;
+    }
+
+    /* ── Responsive: larger screens ──────────────────── */
+    @media (min-width: 481px) {
+      .container { padding: 2rem 1.5rem 3rem; }
+      .metrics-grid { gap: 1rem; }
+      .metric { padding: 1rem 1.25rem; }
+    }
+
+    /* ── Reduced motion ──────────────────────────────── */
+    @media (prefers-reduced-motion: reduce) {
+      .btn { transition: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══ Header ═══ -->
+<header class="header">
+  <svg class="header-icon" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+    <rect width="32" height="32" rx="6" fill="#52b788"/>
+    <path d="M16 6c-1.5 0-8 2.5-8 8s6.5 8 8 8 8-2.5 8-8-6.5-8-8-8z" fill="#1B4332" opacity="0.8"/>
+    <path d="M16 10c-2 0-4 1.5-4 4s2 4 4 4 4-1.5 4-4-2-4-4-4z" fill="#fff" opacity="0.9"/>
+    <path d="M14 14h4" stroke="#1B4332" stroke-width="1.5" stroke-linecap="round"/>
+  </svg>
+  <h1>Dharma Farms</h1>
+</header>
+
+<!-- ═══ Main Content ═══ -->
+<main class="container">
+
+<% if (locals.error) { %>
+
+  <!-- ═══ Error State ═══ -->
+  <div class="card error-card">
+    <svg class="error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+      <path d="M7 11V7a5 5 0 0110 0v4"/>
+    </svg>
+    <h2>Account not found</h2>
+    <p>The link you used is invalid or your account is no longer active. Please contact your administrator.</p>
+  </div>
+
+<% } else { %>
+
+  <!-- ═══ Success Banner ═══ -->
+  <% if (locals.pauseSuccess) { %>
+  <div class="banner banner-success" role="alert">
+    <svg class="banner-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+    </svg>
+    <span>Your subscription has been paused until <strong><%= pauseEndDate %></strong>. Deliveries will resume automatically after that date.</span>
+  </div>
+  <% } %>
+
+  <% if (locals.resumeSuccess) { %>
+  <div class="banner banner-success" role="alert">
+    <svg class="banner-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+    </svg>
+    <span>Your subscription has been resumed! Deliveries will continue as normal.</span>
+  </div>
+  <% } %>
+
+  <!-- ═══ Error Banner ═══ -->
+  <% if (locals.pauseError) { %>
+  <div class="banner banner-error" role="alert">
+    <svg class="banner-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+    </svg>
+    <span><%= pauseError %></span>
+  </div>
+  <% } %>
+
+  <% if (locals.resumeError) { %>
+  <div class="banner banner-error" role="alert">
+    <svg class="banner-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+    </svg>
+    <span><%= resumeError %></span>
+  </div>
+  <% } %>
+
+  <!-- ═══ Customer Info Card ═══ -->
+  <div class="card">
+    <div class="customer-name"><%= customerName %></div>
+    <dl class="customer-meta">
+      <div class="customer-meta-item">
+        <dt>Code:</dt>
+        <dd><%= customerCode %></dd>
+      </div>
+      <div class="customer-meta-item">
+        <dt>Delivery Boy:</dt>
+        <dd><%= deliveryBoyName %></dd>
+      </div>
+    </dl>
+  </div>
+
+  <!-- ═══ Status Badge ═══ -->
+  <div class="card">
+    <div class="card-title">Subscription Status</div>
+    <% if (subscriptionStatus === 'active') { %>
+      <span class="status-badge status-badge-active">
+        <span class="status-dot status-dot-active"></span>
+        Active
+      </span>
+    <% } else if (subscriptionStatus === 'paused') { %>
+      <span class="status-badge status-badge-paused">
+        <span class="status-dot status-dot-paused"></span>
+        Paused until <%= pausedUntil %>
+      </span>
+    <% } else { %>
+      <span class="status-badge status-badge-expired">
+        <span class="status-dot status-dot-expired"></span>
+        Expired
+      </span>
+    <% } %>
+  </div>
+
+  <!-- ═══ Metrics Grid ═══ -->
+  <div class="card">
+    <div class="card-title">Your Account</div>
+    <div class="metrics-grid">
+      <div class="metric">
+        <div class="metric-value"><%= remainingDays %></div>
+        <div class="metric-label">Remaining Days</div>
+      </div>
+      <div class="metric">
+        <div class="metric-value">
+          <% if (todayDeliveryStatus === 'delivered') { %>
+            <span class="metric-delivery-status delivered">Delivered</span>
+          <% } else if (todayDeliveryStatus === 'skipped') { %>
+            <span class="metric-delivery-status skipped">Skipped</span>
+          <% } else if (todayDeliveryStatus === 'issue') { %>
+            <span class="metric-delivery-status issue">Issue</span>
+          <% } else if (todayDeliveryStatus === 'arriving') { %>
+            <span class="metric-delivery-status arriving">Arriving</span>
+          <% } else if (todayDeliveryStatus === 'pending') { %>
+            <span class="metric-delivery-status pending">Pending</span>
+          <% } else { %>
+            <span class="metric-delivery-status none">No delivery today</span>
+          <% } %>
+        </div>
+        <div class="metric-label">Today's Delivery</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Action Section ═══ -->
+  <div class="card action-section">
+
+    <% if (subscriptionStatus === 'active') { %>
+      <h3>Pause Deliveries</h3>
+      <form action="/my-account/<%= token %>/pause" method="POST" id="pause-form">
+        <div class="form-group">
+          <label for="start_date">Pause from</label>
+          <input type="date" id="start_date" name="start_date" min="<%= tomorrow %>" required>
+          <div class="hint">Earliest date: <%= tomorrow %></div>
+        </div>
+        <div class="form-group">
+          <label for="end_date">Pause until</label>
+          <input type="date" id="end_date" name="end_date" min="<%= tomorrow %>" required>
+          <div class="hint">Deliveries resume on the day after this date</div>
+        </div>
+        <button type="submit" class="btn btn-primary" id="pause-submit">Pause Deliveries</button>
+      </form>
+
+    <% } else if (subscriptionStatus === 'paused') { %>
+      <h3>Resume Deliveries</h3>
+      <p class="paused-info">Your deliveries are currently paused until <strong><%= pausedUntil %></strong>.</p>
+      <form action="/my-account/<%= token %>/resume" method="POST" id="resume-form">
+        <button type="submit" class="btn btn-resume" id="resume-submit">Resume Deliveries</button>
+      </form>
+
+    <% } else { %>
+      <h3>Subscription Expired</h3>
+      <div class="expired-message">
+        <p>Your subscription has expired.</p>
+        <p class="hint">Please contact your administrator to renew your subscription.</p>
+      </div>
+    <% } %>
+
+  </div>
+
+<% } %>
+
+</main>
+
+<!-- ═══ Footer ═══ -->
+<footer class="footer">
+  <p>Dharma Farms &mdash; Daily Milk Delivery</p>
+</footer>
+
+<!-- ═══ Vanilla JS: Prevent Double Submit ═══ -->
+<script>
+(function() {
+  'use strict';
+  var forms = document.querySelectorAll('form');
+  forms.forEach(function(form) {
+    form.addEventListener('submit', function() {
+      var btn = form.querySelector('button[type="submit"]');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Please wait...';
+      }
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

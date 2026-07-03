@@ -88,7 +88,8 @@ function setupCustomerRoutes(app, db) {
 
       const data = getPortalData(db, customer);
       res.render('customer/portal', data);
-    } catch {
+    } catch (err) {
+      console.error('[Customer] Error on', req.originalUrl, err.message);
       renderError(res);
     }
   });
@@ -106,7 +107,9 @@ function setupCustomerRoutes(app, db) {
 
       // Basic validation: both dates required
       if (!start_date || !end_date) {
-        return renderError(res);
+        const data = getPortalData(db, customer);
+        data.pauseError = 'Start and end dates are required';
+        return res.render('customer/portal', data);
       }
 
       const result = pauseSubscription(db, customer.id, start_date, end_date);
@@ -116,8 +119,8 @@ function setupCustomerRoutes(app, db) {
       data.pauseSuccess = true;
       data.pauseEndDate = result.pausedUntil;
       res.render('customer/portal', data);
-    } catch {
-      // All failure modes render error:true — no error.message exposed
+    } catch (err) {
+      console.error('[Customer] Error on', req.originalUrl, err.message);
       renderError(res);
     }
   });
@@ -137,8 +140,8 @@ function setupCustomerRoutes(app, db) {
       const data = getPortalData(db, customer);
       data.resumeSuccess = true;
       res.render('customer/portal', data);
-    } catch {
-      // All failure modes render error:true — no error.message exposed
+    } catch (err) {
+      console.error('[Customer] Error on', req.originalUrl, err.message);
       renderError(res);
     }
   });
