@@ -238,14 +238,14 @@ describe('server.js — createApp', () => {
       assert.strictEqual(res.headers['x-frame-options'], 'SAMEORIGIN');
     });
 
-    it('sets Content-Security-Policy header with CDN and inline-script allowances', async () => {
+    it('sets Content-Security-Policy header with inline-script allowances (no CDN)', async () => {
       const res = await request(server, 'GET', '/health');
       const csp = res.headers['content-security-policy'];
       assert.ok(csp, 'Should have Content-Security-Policy header');
 
-      // Must allow Tailwind CDN for scripts
-      assert.ok(csp.includes('cdn.jsdelivr.net'),
-        'CSP should allow cdn.jsdelivr.net for scripts');
+      // Must NOT allow CDN sources (Tailwind is now local)
+      assert.ok(!csp.includes('cdn.jsdelivr.net'),
+        'CSP should not include cdn.jsdelivr.net now that Tailwind is local');
 
       // Must allow inline scripts (for modals/forms)
       assert.ok(csp.includes("'unsafe-inline'"),
