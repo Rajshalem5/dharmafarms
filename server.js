@@ -176,7 +176,6 @@ function createApp(db) {
         /(\/my-account\/)[a-f0-9]{64}/gi,
         '$1[REDACTED]'
       );
-      req.url = req.originalUrl;
     }
     next();
   });
