@@ -256,6 +256,22 @@ describe('server.js — createApp', () => {
         'CSP should allow data: URIs for images');
     });
 
+    it('allows inline event handlers via script-src-attr directive', async () => {
+      const res = await request(server, 'GET', '/health');
+      const csp = res.headers['content-security-policy'];
+      assert.ok(csp, 'Should have Content-Security-Policy header');
+
+      // script-src-attr must be explicitly set to 'unsafe-inline' to allow
+      // onclick and other inline event handlers used in admin pages
+      const directiveMatch = csp.match(/script-src-attr\s+([^;]+)/);
+      assert.ok(directiveMatch,
+        'CSP should have script-src-attr directive');
+
+      const value = directiveMatch[1].trim();
+      assert.ok(value.includes("'unsafe-inline'"),
+        "script-src-attr should include 'unsafe-inline' for onclick handlers, got: " + value);
+    });
+
     it('sanitizes token URLs without crashing', async () => {
       const fakeToken = 'a'.repeat(64);
       const res = await request(server, 'GET', '/my-account/' + fakeToken);
