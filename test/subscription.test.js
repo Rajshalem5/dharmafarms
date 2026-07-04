@@ -485,14 +485,13 @@ describe('pauseSubscription', () => {
 
     assert.strictEqual(result.paused, true);
     assert.strictEqual(result.pausedUntil, end);
-    assert.strictEqual(result.remainingDaysAdded, 3);
 
     const sub = db.prepare('SELECT * FROM subscriptions WHERE customer_id = 1').get();
     assert.strictEqual(sub.status, 'paused');
     assert.strictEqual(sub.paused_until, end);
     assert.strictEqual(sub.paused_from, start, 'paused_from should be set to startDate');
-    // 25 remaining + 3 pause days
-    assert.strictEqual(sub.remaining_days, 28);
+    // remaining_days stays unchanged (no days added during pause)
+    assert.strictEqual(sub.remaining_days, 25);
   });
 
   it('deletes pending deliveries within the pause range', () => {
@@ -601,7 +600,7 @@ describe('resumeSubscription', () => {
     if (db) db.close();
   });
 
-  it('resumes a paused subscription and clears remaining_days adjustment when resumed on planned end date', () => {
+  it('resumes a paused subscription — remaining_days unchanged', () => {
     db = createTestDb();
     seedSimpleData(db);
 
@@ -611,13 +610,9 @@ describe('resumeSubscription', () => {
 
     db.prepare(
       `UPDATE subscriptions
-       SET status = 'paused', paused_until = ?, paused_from = ?, remaining_days = remaining_days + 11
+       SET status = 'paused', paused_until = ?, paused_from = ?
        WHERE customer_id = 1`
     ).run(pausedUntil, pausedFrom);
-
-    // 25 original + 11 pause days added = 36
-    const before = db.prepare('SELECT remaining_days FROM subscriptions WHERE customer_id = 1').get();
-    assert.strictEqual(before.remaining_days, 36, 'should have 36 before resume');
 
     const result = resumeSubscription(db, 1);
 
@@ -626,8 +621,8 @@ describe('resumeSubscription', () => {
     const sub = db.prepare('SELECT * FROM subscriptions WHERE customer_id = 1').get();
     assert.strictEqual(sub.status, 'active');
     assert.strictEqual(sub.paused_until, null);
-    // 5 actual paused days + 25 original = 30
-    assert.strictEqual(sub.remaining_days, 30, 'remaining_days = 25 original + 5 actual paused');
+    // remaining_days stays unchanged (no days added or removed during pause/resume)
+    assert.strictEqual(sub.remaining_days, 25);
   });
 
   it('keeps remaining_days unchanged when resumed on the planned end date', () => {
@@ -639,47 +634,18 @@ describe('resumeSubscription', () => {
 
     db.prepare(
       `UPDATE subscriptions
-       SET status = 'paused', paused_until = ?, paused_from = ?, remaining_days = remaining_days + 11
+       SET status = 'paused', paused_until = ?, paused_from = ?
        WHERE customer_id = 1`
     ).run(pausedUntil, pausedFrom);
-
-    // 25 original + 11 pause days added = 36
-    const before = db.prepare('SELECT remaining_days FROM subscriptions WHERE customer_id = 1').get();
-    assert.strictEqual(before.remaining_days, 36, 'should have 36 before resume');
 
     resumeSubscription(db, 1);
 
     const sub = db.prepare('SELECT * FROM subscriptions WHERE customer_id = 1').get();
-    // 10 actual paused days + 25 original = 35 (36 - 1 adjustment)
-    assert.strictEqual(sub.remaining_days, 35, 'remaining_days = 25 original + 10 actual paused');
+    // remaining_days stays unchanged
+    assert.strictEqual(sub.remaining_days, 25);
   });
 
-  it('resets remaining_days to original when resumed immediately on the start date', () => {
-    db = createTestDb();
-    seedSimpleData(db);
-
-    // Paused_from = today, paused_until = 10 days from now — no actual pause elapsed yet
-    const pausedFrom = daysFromNow(0);
-    const pausedUntil = daysFromNow(10);
-
-    db.prepare(
-      `UPDATE subscriptions
-       SET status = 'paused', paused_until = ?, paused_from = ?, remaining_days = remaining_days + 11
-       WHERE customer_id = 1`
-    ).run(pausedUntil, pausedFrom);
-
-    // 25 original + 11 pause days added = 36
-    const before = db.prepare('SELECT remaining_days FROM subscriptions WHERE customer_id = 1').get();
-    assert.strictEqual(before.remaining_days, 36, 'should have 36 before resume');
-
-    resumeSubscription(db, 1);
-
-    const sub = db.prepare('SELECT * FROM subscriptions WHERE customer_id = 1').get();
-    // 0 actual paused days + 25 original = 25 (36 - 11 adjustment)
-    assert.strictEqual(sub.remaining_days, 25, 'remaining_days = 25 original (no pause consumed)');
-  });
-
-  it('adjusts remaining_days correctly when resumed via full pauseSubscription/resumeSubscription flow', () => {
+  it('keeps remaining_days unchanged through full pauseSubscription/resumeSubscription flow', () => {
     db = createTestDb();
     seedSimpleData(db);
 
@@ -693,8 +659,8 @@ describe('resumeSubscription', () => {
     assert.strictEqual(afterPause.status, 'paused');
     assert.strictEqual(afterPause.paused_from, start);
     assert.strictEqual(afterPause.paused_until, end);
-    // 25 + 10 = 35
-    assert.strictEqual(afterPause.remaining_days, 35, '25 original + 10 pause days');
+    // remaining_days unchanged during pause
+    assert.strictEqual(afterPause.remaining_days, 25, 'remaining_days stays 25 during pause');
 
     // Resume immediately — no actual pause days consumed (start is tomorrow)
     const result = resumeSubscription(db, 1);
@@ -704,8 +670,8 @@ describe('resumeSubscription', () => {
     const sub = db.prepare('SELECT * FROM subscriptions WHERE customer_id = 1').get();
     assert.strictEqual(sub.status, 'active');
     assert.strictEqual(sub.paused_until, null);
-    // 0 actual paused days + 25 original = 25
-    assert.strictEqual(sub.remaining_days, 25, 'remaining_days back to original 25');
+    // remaining_days still unchanged after resume
+    assert.strictEqual(sub.remaining_days, 25, 'remaining_days stays 25 after resume');
   });
 
   it('throws when customer does not exist', () => {

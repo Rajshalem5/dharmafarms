@@ -175,6 +175,8 @@ function isValidDateStr(dateStr) {
 /**
  * Pauses an active subscription from startDate to endDate (inclusive).
  *
+ * Simplified: pause stays pause. No days shift. remaining_days is unchanged.
+ *
  * Validation (in order):
  * - Customer must exist
  * - Customer must have an active subscription (status = 'active')
@@ -189,7 +191,7 @@ function isValidDateStr(dateStr) {
  * @param {number} customerId
  * @param {string} startDate - YYYY-MM-DD
  * @param {string} endDate - YYYY-MM-DD
- * @returns {{ paused: boolean, pausedUntil: string, remainingDaysAdded: number }}
+ * @returns {{ paused: boolean, pausedUntil: string }}
  */
 function pauseSubscription(db, customerId, startDate, endDate) {
   // Validate YYYY-MM-DD format
@@ -225,19 +227,15 @@ function pauseSubscription(db, customerId, startDate, endDate) {
     throw new Error('No active subscription found');
   }
 
-  // Calculate days to add back
-  const daysAdded = Math.round((new Date(endDate) - new Date(startDate)) / 86400000) + 1;
-
   const doPause = db.transaction(() => {
-    // Update subscription
+    // Update subscription: set status to paused, no remaining_days change
     db.prepare(`
       UPDATE subscriptions
       SET status = 'paused',
           paused_until = ?,
-          paused_from = ?,
-          remaining_days = remaining_days + ?
+          paused_from = ?
       WHERE customer_id = ? AND status = 'active' AND paused_until IS NULL
-    `).run(endDate, startDate, daysAdded, customerId);
+    `).run(endDate, startDate, customerId);
 
     // Delete pending deliveries within the pause range
     db.prepare(`
@@ -248,15 +246,14 @@ function pauseSubscription(db, customerId, startDate, endDate) {
 
   doPause();
 
-  return { paused: true, pausedUntil: endDate, remainingDaysAdded: daysAdded };
+  return { paused: true, pausedUntil: endDate };
 }
 
 /**
  * Resumes a paused subscription.
  *
- * Calculates actual paused days vs planned pause days and adjusts
- * remaining_days accordingly. If paused_from is not set (legacy data),
- * no remaining_days adjustment is made.
+ * Simplified: no remaining_days adjustment. Status is set back to active,
+ * and paused_until / paused_from are cleared.
  *
  * Validation:
  * - Customer must exist
@@ -274,40 +271,23 @@ function resumeSubscription(db, customerId) {
     throw new Error('Customer not found');
   }
 
-  // Validate a paused subscription exists; also fetch paused_from and paused_until
+  // Validate a paused subscription exists
   const sub = db.prepare(
-    "SELECT id, paused_from, paused_until FROM subscriptions WHERE customer_id = ? AND paused_until IS NOT NULL ORDER BY id DESC LIMIT 1"
+    "SELECT id FROM subscriptions WHERE customer_id = ? AND paused_until IS NOT NULL ORDER BY id DESC LIMIT 1"
   ).get(customerId);
 
   if (!sub) {
     throw new Error('Subscription is not paused');
   }
 
-  // Calculate remaining_days adjustment based on actual vs planned pause duration
-  let excessDays = 0;
-  if (sub.paused_from) {
-    const today = new Date();
-    const pausedFrom = new Date(sub.paused_from + 'T00:00:00');
-    const pausedUntil = new Date(sub.paused_until + 'T00:00:00');
-
-    // Planned pause duration (inclusive of both start and end)
-    const plannedPauseDays = Math.round((pausedUntil - pausedFrom) / 86400000) + 1;
-
-    // Actual days elapsed since pause started (capped at 0)
-    const actualPausedDays = Math.max(0, Math.floor((today - pausedFrom) / 86400000));
-
-    // Any planned days that weren't actually consumed get removed
-    excessDays = plannedPauseDays - actualPausedDays;
-  }
-
-  // Single UPDATE: resume subscription and adjust remaining_days in one statement
+  // Update subscription: set status to active, clear pause fields, no remaining_days change
   db.prepare(`
     UPDATE subscriptions
     SET status = 'active',
         paused_until = NULL,
-        remaining_days = remaining_days - ?
+        paused_from = NULL
     WHERE customer_id = ? AND paused_until IS NOT NULL
-  `).run(excessDays, customerId);
+  `).run(customerId);
 
   return { resumed: true };
 }
